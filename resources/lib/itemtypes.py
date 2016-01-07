@@ -207,8 +207,8 @@ class Items(object):
                     else:
                         if itemtype == "Movie" and process == "update":
                             # Refresh boxsets
-                            boxsets = self.emby.getBoxset()
-                            items_process.added_boxset(boxsets['Items'], pdialog)
+                            for boxsets in self.emby.getBoxset():
+                                items_process.added_boxset(boxsets['Items'], pdialog)
 
 
             if musicconn is not None:
@@ -247,8 +247,8 @@ class Movies(Items):
             if not pdialog and self.contentmsg:
                 self.contentPop(title)
         # Refresh boxsets
-        boxsets = self.emby.getBoxset()
-        self.added_boxset(boxsets['Items'], pdialog)
+        for boxsets in self.emby.getBoxset():
+            self.added_boxset(boxsets['Items'], pdialog)
 
     def added_boxset(self, items, pdialog):
 
@@ -513,27 +513,27 @@ class Movies(Items):
             process.append(current_movie)
 
         # New list to compare
-        boxsetMovies = emby.getMovies_byBoxset(boxsetid)
-        for movie in boxsetMovies['Items']:
+        for boxsetMovies in emby.getMovies_byBoxset(boxsetid):
+            for movie in boxsetMovies['Items']:
 
-            itemid = movie['Id']
+                itemid = movie['Id']
 
-            if not current.get(itemid):
-                # Assign boxset to movie
-                emby_dbitem = emby_db.getItem_byId(itemid)
-                try:
-                    movieid = emby_dbitem[0]
-                except TypeError:
-                    self.logMsg("Failed to add: %s to boxset." % movie['Name'], 1)
-                    continue
+                if not current.get(itemid):
+                    # Assign boxset to movie
+                    emby_dbitem = emby_db.getItem_byId(itemid)
+                    try:
+                        movieid = emby_dbitem[0]
+                    except TypeError:
+                        self.logMsg("Failed to add: %s to boxset." % movie['Name'], 1)
+                        continue
 
-                self.logMsg("New addition to boxset %s: %s" % (title, movie['Name']), 1)
-                kodi_db.assignBoxset(setid, movieid)
-                # Update emby reference
-                emby_db.updateParentId(itemid, setid)
-            else:
-                # Remove from process, because the item still belongs
-                process.remove(itemid)
+                    self.logMsg("New addition to boxset %s: %s" % (title, movie['Name']), 1)
+                    kodi_db.assignBoxset(setid, movieid)
+                    # Update emby reference
+                    emby_db.updateParentId(itemid, setid)
+                else:
+                    # Remove from process, because the item still belongs
+                    process.remove(itemid)
 
         # Process removals from boxset
         for movie in process:
@@ -1200,8 +1200,8 @@ class TVShows(Items):
                 count += 1
             self.add_update(tvshow)
             # Add episodes
-            all_episodes = self.emby.getEpisodesbyShow(tvshow['Id'])
-            self.added_episode(all_episodes['Items'], pdialog)
+            for all_episodes in self.emby.getEpisodesbyShow(tvshow['Id']):
+                self.added_episode(all_episodes['Items'], pdialog)
 
     def added_season(self, items, pdialog):
         
@@ -1216,8 +1216,8 @@ class TVShows(Items):
                 count += 1
             self.add_updateSeason(season)
             # Add episodes
-            all_episodes = self.emby.getEpisodesbySeason(season['Id'])
-            self.added_episode(all_episodes['Items'], pdialog)
+            for all_episodes in self.emby.getEpisodesbySeason(season['Id']):
+                self.added_episode(all_episodes['Items'], pdialog)
 
     def added_episode(self, items, pdialog):
         
@@ -1898,8 +1898,8 @@ class Music(Items):
                 count += 1
             self.add_updateArtist(artist)
             # Add albums
-            all_albums = self.emby.getAlbumsbyArtist(artist['Id'])
-            self.added_album(all_albums['Items'], pdialog)
+            for all_albums in self.emby.getAlbumsbyArtist(artist['Id']):
+                self.added_album(all_albums['Items'], pdialog)
 
     def added_album(self, items, pdialog):
         
@@ -1914,8 +1914,8 @@ class Music(Items):
                 count += 1
             self.add_updateAlbum(album)
             # Add songs
-            all_songs = self.emby.getSongsbyAlbum(album['Id'])
-            self.added_song(all_songs['Items'], pdialog)
+            for all_songs in self.emby.getSongsbyAlbum(album['Id']):
+                self.added_song(all_songs['Items'], pdialog)
 
     def added_song(self, items, pdialog):
         

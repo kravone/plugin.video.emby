@@ -33,7 +33,6 @@ class Read_EmbyServer():
         # Split up list in pieces of size. Will generate a list of lists
         return [itemlist[i:i+size] for i in range(0, len(itemlist), size)]
 
-
     def getItem(self, itemid):
         # This will return the full item
         item = {}
@@ -125,72 +124,6 @@ class Read_EmbyServer():
 
         return [viewName, viewId, mediatype]
 
-    def getSection(self, parentid, itemtype=None, sortby="SortName", basic=False):
-
-        doUtils = self.doUtils
-        items = {
-            
-            'Items': [],
-            'TotalRecordCount': 0
-        }
-
-        # Get total number of items
-        url = "{server}/emby/Users/{UserId}/Items?format=json"
-        params = {
-
-            'ParentId': parentid,
-            'IncludeItemTypes': itemtype,
-            'CollapseBoxSetItems': False,
-            'IsVirtualUnaired': False,
-            'IsMissing': False,
-            'Recursive': True,
-            'Limit': 1
-        }
-        result = doUtils.downloadUrl(url, parameters=params)
-        try:
-            total = result['TotalRecordCount']
-            items['TotalRecordCount'] = total
-
-        except TypeError: # Failed to retrieve
-            self.logMsg("%s:%s Failed to retrieve the server response." % (url, params), 2)
-
-        else:
-            index = 0
-            jump = self.limitIndex
-
-            while index < total:
-                # Get items by chunk to increase retrieval speed at scale
-                params = {
-
-                    'ParentId': parentid,
-                    'IncludeItemTypes': itemtype,
-                    'CollapseBoxSetItems': False,
-                    'IsVirtualUnaired': False,
-                    'IsMissing': False,
-                    'Recursive': True,
-                    'StartIndex': index,
-                    'Limit': jump,
-                    'SortBy': sortby,
-                    'SortOrder': "Ascending",
-                }
-                if basic:
-                    params['Fields'] = "Etag"
-                else:
-                    params['Fields'] = (
-
-                        "Path,Genres,SortName,Studios,Writer,ProductionYear,Taglines,"
-                        "CommunityRating,OfficialRating,CumulativeRunTimeTicks,"
-                        "Metascore,AirTime,DateCreated,MediaStreams,People,Overview,"
-                        "CriticRating,CriticRatingSummary,Etag,ShortOverview,ProductionLocations,"
-                        "Tags,ProviderIds,ParentId,RemoteTrailers,SpecialEpisodeNumbers"
-                    )
-                result = doUtils.downloadUrl(url, parameters=params)
-                items['Items'].extend(result['Items'])
-
-                index += jump
-
-        return items
-
     def getViews(self, type, root=False):
         # Build a list of user views
         doUtils = self.doUtils
@@ -242,44 +175,101 @@ class Read_EmbyServer():
                         'type': itemtype,
                         'id': itemId
                     })
-        
+
         return views
 
+    def getSection(self, parentid, itemtype=None, sortby="SortName", basic=False):
+        # This is a generator, it yields as result are pulled
+        # to avoid using memory to store all info
+        doUtils = self.doUtils
+        # Get total number of items
+        url = "{server}/emby/Users/{UserId}/Items?format=json"
+        params = {
+
+            'ParentId': parentid,
+            'IncludeItemTypes': itemtype,
+            'CollapseBoxSetItems': False,
+            'IsVirtualUnaired': False,
+            'IsMissing': False,
+            'Recursive': True,
+            'Limit': 1
+        }
+        result = self.doUtils.downloadUrl(url, parameters=params)
+        try:
+            total = result['TotalRecordCount']
+        except:
+            self.logMsg("%s:%s Failed to retrieve the server response." % (url, params), 2)
+            total = 0
+
+        items = {
+            
+            'Items': [],
+            'TotalRecordCount': total
+        }
+        index = 0
+        jump = self.limitIndex
+        while index < total:
+            # Get items by chunk to increase retrieval speed at scale
+            params = {
+
+                'ParentId': parentid,
+                'IncludeItemTypes': itemtype,
+                'CollapseBoxSetItems': False,
+                'IsVirtualUnaired': False,
+                'IsMissing': False,
+                'Recursive': True,
+                'StartIndex': index,
+                'Limit': jump,
+                'SortBy': sortby,
+                'SortOrder': "Ascending",
+            }
+            if basic:
+                params['Fields'] = "Etag"
+            else:
+                params['Fields'] = (
+
+                    "Path,Genres,SortName,Studios,Writer,ProductionYear,Taglines,"
+                    "CommunityRating,OfficialRating,CumulativeRunTimeTicks,"
+                    "Metascore,AirTime,DateCreated,MediaStreams,People,Overview,"
+                    "CriticRating,CriticRatingSummary,Etag,ShortOverview,ProductionLocations,"
+                    "Tags,ProviderIds,ParentId,RemoteTrailers,SpecialEpisodeNumbers"
+                )
+            result = doUtils.downloadUrl(url, parameters=params)
+            items['Items'].extend(result['Items'])
+            yield items
+
+            del items['Items'][:]
+            index += jump
+
     def getMovies(self, parentId, basic=False):
-
-        items = self.getSection(parentId, "Movie", basic=basic)
+        # Generator
+        for items in self.getSection(parentId, "Movie", basic=basic):
+            yield items       
         
-        return items
-
     def getBoxset(self):
-
-        items = self.getSection(None, "BoxSet")
-
-        return items
+        # Generator
+        for items in self.getSection(None, "BoxSet"):
+            yield items
 
     def getMovies_byBoxset(self, boxsetid):
-
-        items = self.getSection(boxsetid, "Movie")
-
-        return items
+        # Generator
+        for items in self.getSection(boxsetid, "Movie"):
+            yield items
 
     def getMusicVideos(self, parentId, basic=False):
-
-        items = self.getSection(parentId, "MusicVideo", basic=basic)
-
-        return items
+        # Generator
+        for items in self.getSection(parentId, "MusicVideo", basic=basic):
+            yield items
 
     def getHomeVideos(self, parentId):
-
-        items = self.getSection(parentId, "Video")
-
-        return items
+        # Generator
+        for items in self.getSection(parentId, "Video"):
+            yield items
 
     def getShows(self, parentId, basic=False):
-
-        items = self.getSection(parentId, "Series", basic=basic)
-
-        return items
+        # Generator
+        for items in self.getSection(parentId, "Series", basic=basic):
+            yield items
 
     def getSeasons(self, showId):
 
@@ -302,32 +292,24 @@ class Read_EmbyServer():
         return items
 
     def getEpisodes(self, parentId, basic=False):
-
-        items = self.getSection(parentId, "Episode", basic=basic)
-
-        return items
+        # Generator
+        for items in self.getSection(parentId, "Episode", basic=basic):
+            yield items
 
     def getEpisodesbyShow(self, showId):
-
-        items = self.getSection(showId, "Episode")
-
-        return items
+        # Generator
+        for items in self.getSection(showId, "Episode"):
+            yield items
 
     def getEpisodesbySeason(self, seasonId):
-
-        items = self.getSection(seasonId, "Episode")
-
-        return items
+        # Generator
+        for items in self.getSection(seasonId, "Episode"):
+            yield items
 
     def getArtists(self):
-
+        # This is a generator, it yields as result are pulled
+        # to avoid using memory to store all info
         doUtils = self.doUtils
-        items = {
-
-            'Items': [],
-            'TotalRecordCount': 0
-        }
-
         # Get total number of items
         url = "{server}/emby/Artists?UserId={UserId}&format=json"
         params = {
@@ -338,63 +320,61 @@ class Read_EmbyServer():
         result = doUtils.downloadUrl(url, parameters=params)
         try:
             total = result['TotalRecordCount']
-            items['TotalRecordCount'] = total
-
-        except TypeError: # Failed to retrieve
+        except:
             self.logMsg("%s:%s Failed to retrieve the server response." % (url, params), 2)
+            total = 0
+        items = {
 
-        else:
-            index = 1
-            jump = self.limitIndex
+            'Items': [],
+            'TotalRecordCount': total
+        }
+        index = 1
+        jump = self.limitIndex
 
-            while index < total:
-                # Get items by chunk to increase retrieval speed at scale
-                params = {
+        while index < total:
+            # Get items by chunk to increase retrieval speed at scale
+            params = {
 
-                    'Recursive': True,
-                    'IsVirtualUnaired': False,
-                    'IsMissing': False,
-                    'StartIndex': index,
-                    'Limit': jump,
-                    'SortBy': "SortName",
-                    'SortOrder': "Ascending",
-                    'Fields': (
+                'Recursive': True,
+                'IsVirtualUnaired': False,
+                'IsMissing': False,
+                'StartIndex': index,
+                'Limit': jump,
+                'SortBy': "SortName",
+                'SortOrder': "Ascending",
+                'Fields': (
 
-                        "Etag,Genres,SortName,Studios,Writer,ProductionYear,"
-                        "CommunityRating,OfficialRating,CumulativeRunTimeTicks,Metascore,"
-                        "AirTime,DateCreated,MediaStreams,People,ProviderIds,Overview"
-                    )
-                }
-                result = doUtils.downloadUrl(url, parameters=params)
-                items['Items'].extend(result['Items'])
+                    "Etag,Genres,SortName,Studios,Writer,ProductionYear,"
+                    "CommunityRating,OfficialRating,CumulativeRunTimeTicks,Metascore,"
+                    "AirTime,DateCreated,MediaStreams,People,ProviderIds,Overview"
+                )
+            }
+            result = doUtils.downloadUrl(url, parameters=params)
+            items['Items'].extend(result['Items'])
+            yield items
 
-                index += jump
-
-        return items
+            del items['Items'][:]
+            index += jump
 
     def getAlbums(self, basic=False):
-
-        items = self.getSection(None, "MusicAlbum", sortby="DateCreated", basic=basic)
-
-        return items
+        # Generator
+        for items in self.getSection(None, "MusicAlbum", sortby="DateCreated", basic=basic):
+            yield items
 
     def getAlbumsbyArtist(self, artistId):
-
-        items = self.getSection(artistId, "MusicAlbum", sortby="DateCreated")
-
-        return items
+        # Generator
+        for items in self.getSection(artistId, "MusicAlbum", sortby="DateCreated"):
+            yield items
 
     def getSongs(self, basic=False):
-
-        items = self.getSection(None, "Audio", basic=basic)
-
-        return items
+        # Generator
+        for items in self.getSection(None, "Audio", basic=basic):
+            yield items
 
     def getSongsbyAlbum(self, albumId):
-
-        items = self.getSection(albumId, "Audio")
-
-        return items
+        # Generator
+        for items in self.getSection(albumId, "Audio"):
+            yield items
 
     def getAdditionalParts(self, itemId):
 
