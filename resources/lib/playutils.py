@@ -23,8 +23,19 @@ class PlayUtils(object):
     
     
     def __init__(self, item, server_id=None):
+
+        self.doutils = downloadutils.DownloadUtils().downloadUrl
+
         self.item = item
         self.server_id = server_id
+
+        if server_id is None:
+            server = window('emby_server.json')
+        else:
+            server = window('emby_server%s.json' % server_id)
+
+        server = json.loads(server)
+        self.userid = server['UserId']
     
     def getPlayUrl(self):
         '''
