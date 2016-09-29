@@ -2,14 +2,13 @@
 
 #################################################################################################
 
+import json
 import logging
 import sys
 
-import xbmc
 import xbmcgui
 import xbmcvfs
 
-import clientinfo
 import downloadutils
 from utils import window, settings, language as lang
 
@@ -20,33 +19,27 @@ log = logging.getLogger("EMBY."+__name__)
 #################################################################################################
 
 
-class PlayUtils():
+class PlayUtils(object):
     
     
-    def __init__(self, item):
-
+    def __init__(self, item, server_id=None):
         self.item = item
-        self.clientInfo = clientinfo.ClientInfo()
-
-        self.userid = window('emby_currUser')
-        self.server = window('emby_server%s' % self.userid)
-        
-        self.doUtils = downloadutils.DownloadUtils().downloadUrl
+        self.server_id = server_id
     
     def getPlayUrl(self):
         '''
-            New style to retrieve the best playback method based on sending the profile to the server
-            Based on capabilities the correct path is returned, including livestreams that need to be opened by the server
+            New style to retrieve the best playback method based on sending the profile
+            to the server. Based on capabilities the correct path is returned, including
+            livestreams that need to be opened by the server.
             TODO: Close livestream if needed (RequiresClosing in livestream source)
         '''
         playurl = None
-        pbinfo = self.getPlaybackInfo()
+        pbinfo = self.get_playback_info()
         if pbinfo:
-            xbmc.log("getPlayUrl pbinfo: %s" %(pbinfo))
             
-            if pbinfo["Protocol"] == "SupportsDirectPlay":
+            if pbinfo['SupportsDirectPlay']:
                 playmethod = "DirectPlay"
-            elif pbinfo["Protocol"] == "SupportsDirectStream":
+            elif pbinfo['SupportsDirectStream']:
                 playmethod = "DirectStream"
             elif pbinfo.get('LiveStreamId'):
                 playmethod = "LiveStream"
@@ -54,7 +47,7 @@ class PlayUtils():
                 playmethod = "Transcode"
 
             playurl = pbinfo["Path"]
-            xbmc.log("getPlayUrl playmethod: %s - playurl: %s" %(playmethod, playurl))
+            log.info("getPlayUrl playmethod: %s - playurl: %s", playmethod, playurl)
             window('emby_%s.playmethod' % playurl, value=playmethod)
             if pbinfo["RequiresClosing"] and pbinfo.get('LiveStreamId'):
                 window('emby_%s.livestreamid' % playurl, value=pbinfo["LiveStreamId"])
@@ -62,7 +55,7 @@ class PlayUtils():
         return playurl
 
 
-    def getPlayUrlOld(self):
+    '''def getPlayUrlOld(self):
 
         playurl = None
         
@@ -302,7 +295,7 @@ class PlayUtils():
                 "%s&VideoCodec=h264&AudioCodec=ac3&MaxAudioChannels=6&deviceId=%s&VideoBitrate=%s"
                 % (playurl, deviceId, self.getBitrate()*1000))
 
-        return playurl
+        return playurl'''
 
     def getBitrate(self):
 
@@ -442,20 +435,20 @@ class PlayUtils():
 
         return playurlprefs
     
-    def getPlaybackInfo(self):
+    def get_playback_info(self):
         #Gets the playback Info for the current item
         url = "{server}/emby/Items/%s/PlaybackInfo?format=json" %self.item['Id']
         body = {   
                 "UserId": self.userid,
-                "DeviceProfile": self.getDeviceProfile(),
+                "DeviceProfile": self.get_device_profile(),
                 "StartTimeTicks": 0, #TODO
                 "AudioStreamIndex": None, #TODO
                 "SubtitleStreamIndex": None, #TODO
                 "MediaSourceId": None, 
                 "LiveStreamId": None 
                 }
-        pbinfo = self.doUtils(url, postBody=body, action_type="POST")
-        xbmc.log("getPlaybackInfo: %s" %pbinfo)
+        pbinfo = self.doutils(url, postBody=body, action_type="POST", server_id=self.server_id)
+        log.info("getPlaybackInfo: %s", pbinfo)
         mediaSource = self.getOptimalMediaSource(pbinfo["MediaSources"])
         if mediaSource and mediaSource["RequiresOpening"]:
             mediaSource = self.getLiveStream(pbinfo["PlaySessionId"], mediaSource)
@@ -485,14 +478,14 @@ class PlayUtils():
                     elif not source.get("Bitrate") and source.get("RequiresOpening"):
                         #livestream
                         bestSource = source
-        xbmc.log("getOptimalMediaSource: %s" %bestSource)
+        log.info("getOptimalMediaSource: %s" %bestSource)
         return bestSource
         
     def getLiveStream(self, playSessionId, mediaSource):
         url = "{server}/emby/LiveStreams/Open?format=json"
         body = {   
                 "UserId": self.userid,
-                "DeviceProfile": self.getDeviceProfile(),
+                "DeviceProfile": self.get_device_profile(),
                 "ItemId": self.item["Id"],
                 "PlaySessionId": playSessionId,
                 "OpenToken": mediaSource["OpenToken"],
@@ -500,8 +493,8 @@ class PlayUtils():
                 "AudioStreamIndex": None, #TODO
                 "SubtitleStreamIndex": None #TODO
                 }
-        streaminfo = self.doUtils(url, postBody=body, action_type="POST")
-        xbmc.log("getLiveStream: %s" %streaminfo)
+        streaminfo = self.doutils(url, postBody=body, action_type="POST", server_id=self.server_id)
+        log.info("getLiveStream: %s", streaminfo)
         return streaminfo["MediaSource"]
             
     def checkDirectPlayPath(self, playurl):
@@ -523,44 +516,39 @@ class PlayUtils():
         else:
             return None
     
-    def getDeviceProfile(self):
+    def get_device_profile(self):
         return {
             "Name": "Kodi",
+
             "MaxStreamingBitrate": self.getBitrate()*1000,
             "MusicStreamingTranscodingBitrate": 1280000,
+
             "TimelineOffsetSeconds": 5,
             
             "Identification": {
-              "ModelName": "Kodi",
-              "Headers": [
-                {
-                  "Name": "User-Agent",
-                  "Value": "Kodi",
-                  "Match": 2
-                }
-              ]
+                "ModelName": "Kodi",
+                "Headers": [{
+                    "Name": "User-Agent",
+                    "Value": "Kodi",
+                    "Match": 2
+                }]
             },
             
-            "TranscodingProfiles": [
-              {
+            "TranscodingProfiles": [{
                 "Container": "mp3",
                 "AudioCodec": "mp3",
-                "Type": 0
-              },
+                "Type": 0},
               {
                 "Container": "ts",
                 "AudioCodec": "aac",
                 "VideoCodec": "h264",
-                "Type": 1
-              },
+                "Type": 1},
               {
                 "Container": "jpeg",
-                "Type": 2
-              }
+                "Type": 2}
             ],
             
-            "DirectPlayProfiles": [
-              {
+            "DirectPlayProfiles": [{
                 "Container": "",
                 "Type": 0
               },
