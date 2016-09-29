@@ -36,6 +36,7 @@ class PlayUtils(object):
             server = window('emby_server%s.json' % server_id)
 
         self.user_id = server['UserId']
+        self.server = server['Server']
 
 
     def getPlayUrl(self):
@@ -43,7 +44,6 @@ class PlayUtils(object):
             New style to retrieve the best playback method based on sending the profile
             to the server. Based on capabilities the correct path is returned, including
             livestreams that need to be opened by the server.
-            TODO: Close livestream if needed (RequiresClosing in livestream source)
         '''
         playurl = None
         info = self._get_playback_info()
@@ -51,17 +51,19 @@ class PlayUtils(object):
 
             if info['SupportsDirectPlay']:
                 play_method = "DirectPlay"
+                playurl = info['Path']
 
             elif info['SupportsDirectStream']:
                 play_method = "DirectStream"
-
-            elif 'LiveStreamId' in info:
-                play_method = "LiveStream"
+                playurl = self.directStream()
 
             else:
                 play_method = "Transcode"
+                if 'TranscodingUrl' in info:
+                    playurl = self.server + pbinfo["TranscodingUrl"]
+                else:
+                    playurl = self.transcoding()
 
-            playurl = info['Path']
             log.info("getPlayUrl playmethod: %s - playurl: %s", play_method, playurl)
             window('emby_%s.playmethod' % playurl, value=play_method)
             if info['RequiresClosing'] and 'LiveStreamId' in info:
@@ -122,36 +124,61 @@ class PlayUtils(object):
     def _get_optimal_mediasource(self, mediasources):
         '''
         Select the best possible mediasource for playback
-        Because we posted our deviceprofile to the server,
-        To review as the following is incorrect:
-        only streams will be returned that can actually be played by this client so no need
-        to check bitrates etc.
+        We select the best stream based on a score
+        TODO: Incorporate user preferences for best stream selection
         '''
-        preferred_order = ["SupportsDirectPlay", "SupportsDirectStream", "SupportsTranscoding"]
-        best_source = {}
-        
-        if settings('playFromStream') == "true": # Forced HTTP
-            preferred_order.remove('SupportsDirectPlay')
+        bestSource = {}
+        lastScore = 0
 
-        for preferred in preferred_order:
-            for source in mediasources:
-                if source[preferred]:
+        for mediasource in mediasources:
 
-                    if preferred == "SupportsDirectPlay":
-                        # Always prefer direct play
-                        alt_playurl = self._file_exists(source['Path'])
-                        if alt_playurl:
-                            best_source = source
-                            source["Path"] = alt_playurl
-                    elif best_source.get("BitRate",0) < source.get("Bitrate",0):
-                        #prefer stream with highest bitrate for http sources
-                        best_source = source
-                    elif not source.get("Bitrate") and source.get("RequiresOpening"):
-                        # Livestream
-                        best_source = source
+            score = 0
 
-        log.info("getOptimalMediaSource: %s", best_source)
-        return best_source
+            #transform filepath to kodi compliant
+
+            if mediasource["Protocol"] == "File":
+
+                mediasource['Path'] = self._direct_play(mediasource['Path'])
+
+
+            #The bitrate and video dimension is an important quality argument so also base our score on that
+
+            score += mediasource.get("Bitrate",0)
+
+            for stream in mediasource["MediaStreams"]:
+
+                if stream["Type"] == "Video" and stream.get("Width"):
+
+                    #some streams report high bitrate but have no video width so stream with video width has highest score
+
+                    #this is especially true for videos in channels, like trailers
+
+                    score += stream["Width"] * 10000 
+
+            #directplay has the highest score
+
+            if mediasource["SupportsDirectPlay"] and self.supportsDirectPlay(mediasource):
+
+                score += 100000000
+
+            
+            #directstream also scores well, the transcode option has no points as its a last resort
+
+            if mediasource["SupportsDirectStream"]:
+
+                score += 5000000
+
+            #TODO: If our user has any specific preferences we can alter the score
+            # For now we just select the highest quality as our prefered score
+
+            if score >= lastScore:
+
+                lastScore = score
+                bestSource = mediasource
+
+        log.info("getOptimalMediaSource: %s", bestSource)
+
+        return bestSource
 
     def _get_live_stream(self, session_id, mediasource):
 
@@ -171,7 +198,7 @@ class PlayUtils(object):
 
         return info['MediaSource']
             
-    def _file_exists(self, playurl):
+    def _direct_play(self, playurl):
 
         if 'VideoType' in self.item:
             # Specific format modification
@@ -187,7 +214,13 @@ class PlayUtils(object):
             playurl = playurl.replace("\\\\", "smb://")
             playurl = playurl.replace("\\", "/")
         
-        return playurl if xbmcvfs.exists(playurl) else None
+        return playurl
+
+    def supportsDirectPlay(self, mediasource):
+
+        #Figure out if the path can be directly played as the bool returned from the server response is not 100% reliable
+
+        return not xbmcvfs.exists(mediasource["Path"])
     
     def _get_device_profile(self):
         return {
@@ -289,6 +322,142 @@ class PlayUtils(object):
               }
             ]
         }
+
+    def directStream(self):
+
+        if 'Path' in self.item and self.item['Path'].endswith('.strm'):
+            # Allow strm loading when direct streaming
+            playurl = self.directPlay()
+        elif self.item['Type'] == "Audio":
+            playurl = "%s/emby/Audio/%s/stream.mp3" % (self.server, self.item['Id'])
+        else:
+            playurl = "%s/emby/Videos/%s/stream?static=true" % (self.server, self.item['Id'])
+
+        return playurl
+
+    def transcoding(self):
+
+        if 'Path' in self.item and self.item['Path'].endswith('.strm'):
+            # Allow strm loading when transcoding
+            playurl = self.directPlay()
+        else:
+            itemid = self.item['Id']
+            deviceId = self.clientInfo.get_device_id()
+            playurl = (
+                "%s/emby/Videos/%s/master.m3u8?MediaSourceId=%s"
+                % (self.server, itemid, itemid)
+            )
+            playurl = (
+                "%s&VideoCodec=h264&AudioCodec=ac3&MaxAudioChannels=6&deviceId=%s&VideoBitrate=%s"
+                % (playurl, deviceId, self.getBitrate()*1000))
+
+        return playurl
+
+    def audioSubsPref(self, url, listitem):
+
+        dialog = xbmcgui.Dialog()
+        # For transcoding only
+        # Present the list of audio to select from
+        audioStreamsList = {}
+        audioStreams = []
+        audioStreamsChannelsList = {}
+        subtitleStreamsList = {}
+        subtitleStreams = ['No subtitles']
+        downloadableStreams = []
+        selectAudioIndex = ""
+        selectSubsIndex = ""
+        playurlprefs = "%s" % url
+
+        try:
+            mediasources = self.item['MediaSources'][0]
+            mediastreams = mediasources['MediaStreams']
+        except (TypeError, KeyError, IndexError):
+            return
+
+        for stream in mediastreams:
+            # Since Emby returns all possible tracks together, have to sort them.
+            index = stream['Index']
+
+            if 'Audio' in stream['Type']:
+                codec = stream['Codec']
+                channelLayout = stream.get('ChannelLayout', "")
+               
+                try:
+                    track = "%s - %s - %s %s" % (index, stream['Language'], codec, channelLayout)
+                except:
+                    track = "%s - %s %s" % (index, codec, channelLayout)
+                
+                audioStreamsChannelsList[index] = stream['Channels']
+                audioStreamsList[track] = index
+                audioStreams.append(track)
+
+            elif 'Subtitle' in stream['Type']:
+                try:
+                    track = "%s - %s" % (index, stream['Language'])
+                except:
+                    track = "%s - %s" % (index, stream['Codec'])
+
+                default = stream['IsDefault']
+                forced = stream['IsForced']
+                downloadable = stream['IsTextSubtitleStream']
+
+                if default:
+                    track = "%s - Default" % track
+                if forced:
+                    track = "%s - Forced" % track
+                if downloadable:
+                    downloadableStreams.append(index)
+
+                subtitleStreamsList[track] = index
+                subtitleStreams.append(track)
+
+
+        if len(audioStreams) > 1:
+            resp = dialog.select(lang(33013), audioStreams)
+            if resp > -1:
+                # User selected audio
+                selected = audioStreams[resp]
+                selectAudioIndex = audioStreamsList[selected]
+                playurlprefs += "&AudioStreamIndex=%s" % selectAudioIndex
+            else: # User backed out of selection
+                playurlprefs += "&AudioStreamIndex=%s" % mediasources['DefaultAudioStreamIndex']
+        else: # There's only one audiotrack.
+            selectAudioIndex = audioStreamsList[audioStreams[0]]
+            playurlprefs += "&AudioStreamIndex=%s" % selectAudioIndex
+
+        if len(subtitleStreams) > 1:
+            resp = dialog.select(lang(33014), subtitleStreams)
+            if resp == 0:
+                # User selected no subtitles
+                pass
+            elif resp > -1:
+                # User selected subtitles
+                selected = subtitleStreams[resp]
+                selectSubsIndex = subtitleStreamsList[selected]
+
+                # Load subtitles in the listitem if downloadable
+                if selectSubsIndex in downloadableStreams:
+
+                    itemid = self.item['Id']
+                    url = [("%s/Videos/%s/%s/Subtitles/%s/Stream.srt"
+                        % (self.server, itemid, itemid, selectSubsIndex))]
+                    log.info("Set up subtitles: %s %s" % (selectSubsIndex, url))
+                    listitem.setSubtitles(url)
+                else:
+                    # Burn subtitles
+                    playurlprefs += "&SubtitleStreamIndex=%s" % selectSubsIndex
+
+            else: # User backed out of selection
+                playurlprefs += "&SubtitleStreamIndex=%s" % mediasources.get('DefaultSubtitleStreamIndex', "")
+
+        # Get number of channels for selected audio track
+        audioChannels = audioStreamsChannelsList.get(selectAudioIndex, 0)
+        if audioChannels > 2:
+            playurlprefs += "&AudioBitrate=384000"
+        else:
+            playurlprefs += "&AudioBitrate=192000"
+
+        return playurlprefs
 
     '''def getPlayUrl(self):
 
@@ -514,127 +683,4 @@ class PlayUtils(object):
 
         return True
 
-    def transcoding(self):
-
-        if 'Path' in self.item and self.item['Path'].endswith('.strm'):
-            # Allow strm loading when transcoding
-            playurl = self.directPlay()
-        else:
-            itemid = self.item['Id']
-            deviceId = self.clientInfo.get_device_id()
-            playurl = (
-                "%s/emby/Videos/%s/master.m3u8?MediaSourceId=%s"
-                % (self.server, itemid, itemid)
-            )
-            playurl = (
-                "%s&VideoCodec=h264&AudioCodec=ac3&MaxAudioChannels=6&deviceId=%s&VideoBitrate=%s"
-                % (playurl, deviceId, self.getBitrate()*1000))
-
-        return playurl
-
-    def audioSubsPref(self, url, listitem):
-
-        dialog = xbmcgui.Dialog()
-        # For transcoding only
-        # Present the list of audio to select from
-        audioStreamsList = {}
-        audioStreams = []
-        audioStreamsChannelsList = {}
-        subtitleStreamsList = {}
-        subtitleStreams = ['No subtitles']
-        downloadableStreams = []
-        selectAudioIndex = ""
-        selectSubsIndex = ""
-        playurlprefs = "%s" % url
-
-        try:
-            mediasources = self.item['MediaSources'][0]
-            mediastreams = mediasources['MediaStreams']
-        except (TypeError, KeyError, IndexError):
-            return
-
-        for stream in mediastreams:
-            # Since Emby returns all possible tracks together, have to sort them.
-            index = stream['Index']
-
-            if 'Audio' in stream['Type']:
-                codec = stream['Codec']
-                channelLayout = stream.get('ChannelLayout', "")
-               
-                try:
-                    track = "%s - %s - %s %s" % (index, stream['Language'], codec, channelLayout)
-                except:
-                    track = "%s - %s %s" % (index, codec, channelLayout)
-                
-                audioStreamsChannelsList[index] = stream['Channels']
-                audioStreamsList[track] = index
-                audioStreams.append(track)
-
-            elif 'Subtitle' in stream['Type']:
-                try:
-                    track = "%s - %s" % (index, stream['Language'])
-                except:
-                    track = "%s - %s" % (index, stream['Codec'])
-
-                default = stream['IsDefault']
-                forced = stream['IsForced']
-                downloadable = stream['IsTextSubtitleStream']
-
-                if default:
-                    track = "%s - Default" % track
-                if forced:
-                    track = "%s - Forced" % track
-                if downloadable:
-                    downloadableStreams.append(index)
-
-                subtitleStreamsList[track] = index
-                subtitleStreams.append(track)
-
-
-        if len(audioStreams) > 1:
-            resp = dialog.select(lang(33013), audioStreams)
-            if resp > -1:
-                # User selected audio
-                selected = audioStreams[resp]
-                selectAudioIndex = audioStreamsList[selected]
-                playurlprefs += "&AudioStreamIndex=%s" % selectAudioIndex
-            else: # User backed out of selection
-                playurlprefs += "&AudioStreamIndex=%s" % mediasources['DefaultAudioStreamIndex']
-        else: # There's only one audiotrack.
-            selectAudioIndex = audioStreamsList[audioStreams[0]]
-            playurlprefs += "&AudioStreamIndex=%s" % selectAudioIndex
-
-        if len(subtitleStreams) > 1:
-            resp = dialog.select(lang(33014), subtitleStreams)
-            if resp == 0:
-                # User selected no subtitles
-                pass
-            elif resp > -1:
-                # User selected subtitles
-                selected = subtitleStreams[resp]
-                selectSubsIndex = subtitleStreamsList[selected]
-
-                # Load subtitles in the listitem if downloadable
-                if selectSubsIndex in downloadableStreams:
-
-                    itemid = self.item['Id']
-                    url = [("%s/Videos/%s/%s/Subtitles/%s/Stream.srt"
-                        % (self.server, itemid, itemid, selectSubsIndex))]
-                    log.info("Set up subtitles: %s %s" % (selectSubsIndex, url))
-                    listitem.setSubtitles(url)
-                else:
-                    # Burn subtitles
-                    playurlprefs += "&SubtitleStreamIndex=%s" % selectSubsIndex
-
-            else: # User backed out of selection
-                playurlprefs += "&SubtitleStreamIndex=%s" % mediasources.get('DefaultSubtitleStreamIndex', "")
-
-        # Get number of channels for selected audio track
-        audioChannels = audioStreamsChannelsList.get(selectAudioIndex, 0)
-        if audioChannels > 2:
-            playurlprefs += "&AudioBitrate=384000"
-        else:
-            playurlprefs += "&AudioBitrate=192000"
-
-        return playurlprefs
     '''
