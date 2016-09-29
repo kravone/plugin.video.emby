@@ -61,10 +61,13 @@ class PlayUtils(object):
 
             else:
                 play_method = "Transcode"
-                if 'TranscodingUrl' in info:
+                playurl = self.transcoding()
+                # TODO: What is TranscodingUrl for? Only for live stream?
+                # It reports progress/ticks differently
+                '''if 'TranscodingUrl' in info:
                     playurl = self.server + info["TranscodingUrl"]
                 else:
-                    playurl = self.transcoding()
+                    playurl = self.transcoding()'''
 
             log.info("getPlayUrl playmethod: %s - playurl: %s", play_method, playurl)
             window('emby_%s.playmethod' % playurl, value=play_method)
@@ -351,7 +354,7 @@ class PlayUtils(object):
             )
             playurl = (
                 "%s&VideoCodec=h264&AudioCodec=ac3&MaxAudioChannels=6&deviceId=%s&VideoBitrate=%s"
-                % (playurl, deviceId, self.getBitrate()*1000))
+                % (playurl, deviceId, self._get_bitrate()*1000))
 
         return playurl
 
