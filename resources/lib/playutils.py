@@ -195,6 +195,7 @@ class PlayUtils(object):
         }
         info = self.doutils(url, postBody=body, action_type="POST", server_id=self.server_id)
         log.info("getLiveStream: %s", info)
+        info["MediaSource"]["SupportsDirectPlay"] = self.supportsDirectPlay(info["MediaSource"]) 
 
         return info['MediaSource']
             
