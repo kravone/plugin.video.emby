@@ -2,7 +2,6 @@
 
 #################################################################################################
 
-import json
 import logging
 import sys
 
@@ -34,7 +33,6 @@ class PlayUtils(object):
         else:
             server = window('emby_server%s.json' % server_id)
 
-        server = json.loads(server)
         self.user_id = server['UserId']
     
     def getPlayUrl(self):
