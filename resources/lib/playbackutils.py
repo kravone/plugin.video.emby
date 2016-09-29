@@ -190,8 +190,9 @@ class PlaybackUtils():
             if self.item.get('VideoType') == "Iso":
                 log.info("Skipping audio/subs prompt, ISO detected.")
             else:
-                playurl = playutils.audioSubsPref(playurl, listitem)
-                window('emby_%s.playmethod' % playurl, value="Transcode")
+                #playurl = playutils.audioSubsPref(playurl, listitem)
+                #window('emby_%s.playmethod' % playurl, value="Transcode")
+                pass
 
         listitem.setPath(playurl)
         self.setProperties(playurl, listitem)
