@@ -8,6 +8,7 @@ import sys
 import xbmcgui
 import xbmcvfs
 
+import clientinfo
 import downloadutils
 from utils import window, settings, language as lang
 
@@ -26,6 +27,7 @@ class PlayUtils(object):
 
     def __init__(self, item, server_id=None):
 
+        self.client_info = clientinfo.ClientInfo()
         self.doutils = downloadutils.DownloadUtils().downloadUrl
         self.item = item
         self.server_id = server_id
@@ -60,7 +62,7 @@ class PlayUtils(object):
             else:
                 play_method = "Transcode"
                 if 'TranscodingUrl' in info:
-                    playurl = self.server + pbinfo["TranscodingUrl"]
+                    playurl = self.server + info["TranscodingUrl"]
                 else:
                     playurl = self.transcoding()
 
@@ -135,10 +137,8 @@ class PlayUtils(object):
             score = 0
 
             #transform filepath to kodi compliant
-
-            if mediasource["Protocol"] == "File":
-
-                mediasource['Path'] = self._direct_play(mediasource['Path'])
+            if mediasource['Protocol'] == "File":
+                mediasource['Path'] = self._get_file_path(mediasource['Path'])
 
 
             #The bitrate and video dimension is an important quality argument so also base our score on that
@@ -157,7 +157,7 @@ class PlayUtils(object):
 
             #directplay has the highest score
 
-            if mediasource["SupportsDirectPlay"] and self.supportsDirectPlay(mediasource):
+            if mediasource["SupportsDirectPlay"] and self.supports_direct_play(mediasource):
 
                 score += 100000000
 
@@ -188,40 +188,41 @@ class PlayUtils(object):
             'DeviceProfile': self._get_device_profile(),
             'ItemId': self.item['Id'],
             'PlaySessionId': session_id,
-            'OpenToken': mediasource["OpenToken"],
+            'OpenToken': mediasource['OpenToken'],
             'StartTimeTicks': 0, #TODO
             'AudioStreamIndex': None, #TODO
             'SubtitleStreamIndex': None #TODO
         }
         info = self.doutils(url, postBody=body, action_type="POST", server_id=self.server_id)
         log.info("getLiveStream: %s", info)
-        info["MediaSource"]["SupportsDirectPlay"] = self.supportsDirectPlay(info["MediaSource"]) 
+        info['MediaSource']['SupportsDirectPlay'] = self.supports_direct_play(info['MediaSource']) 
 
         return info['MediaSource']
             
-    def _direct_play(self, playurl):
+    def _get_file_path(self, path):
 
         if 'VideoType' in self.item:
             # Specific format modification
             video_type = self.item['VideoType']
 
             if video_type == "Dvd":
-                playurl = "%s/VIDEO_TS/VIDEO_TS.IFO" % playurl
+                path = "%s/VIDEO_TS/VIDEO_TS.IFO" % path
             elif video_type == "BluRay":
-                playurl = "%s/BDMV/index.bdmv" % playurl
+                path = "%s/BDMV/index.bdmv" % path
 
         # Assign network protocol
-        if playurl.startswith('\\\\'):
-            playurl = playurl.replace("\\\\", "smb://")
-            playurl = playurl.replace("\\", "/")
-        
-        return playurl
+        if path.startswith('\\\\'):
+            path = path.replace("\\\\", "smb://")
+            path = path.replace("\\", "/")
 
-    def supportsDirectPlay(self, mediasource):
+        return path
 
-        #Figure out if the path can be directly played as the bool returned from the server response is not 100% reliable
-
-        return not xbmcvfs.exists(mediasource["Path"])
+    def supports_direct_play(self, mediasource):
+        #Figure out if the path can be directly played as the bool returned from the server
+        #response is not 100% reliable
+        result = False if settings('playFromStream') == "true" else xbmcvfs.exists(path)
+        mediasource['SupportsDirectPlay'] = result
+        return result
     
     def _get_device_profile(self):
         return {
@@ -343,7 +344,7 @@ class PlayUtils(object):
             playurl = self.directPlay()
         else:
             itemid = self.item['Id']
-            deviceId = self.clientInfo.get_device_id()
+            deviceId = self.client_info.get_device_id()
             playurl = (
                 "%s/emby/Videos/%s/master.m3u8?MediaSourceId=%s"
                 % (self.server, itemid, itemid)
