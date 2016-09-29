@@ -35,7 +35,7 @@ class PlayUtils(object):
             server = window('emby_server%s.json' % server_id)
 
         server = json.loads(server)
-        self.userid = server['UserId']
+        self.user_id = server['UserId']
     
     def getPlayUrl(self):
         '''
@@ -309,7 +309,6 @@ class PlayUtils(object):
         return playurl'''
 
     def getBitrate(self):
-
         # get the addon video quality
         bitrate = {
 
@@ -450,7 +449,7 @@ class PlayUtils(object):
         #Gets the playback Info for the current item
         url = "{server}/emby/Items/%s/PlaybackInfo?format=json" %self.item['Id']
         body = {   
-                "UserId": self.userid,
+                "UserId": self.user_id,
                 "DeviceProfile": self.get_device_profile(),
                 "StartTimeTicks": 0, #TODO
                 "AudioStreamIndex": None, #TODO
@@ -495,7 +494,7 @@ class PlayUtils(object):
     def getLiveStream(self, playSessionId, mediaSource):
         url = "{server}/emby/LiveStreams/Open?format=json"
         body = {   
-                "UserId": self.userid,
+                "UserId": self.user_id,
                 "DeviceProfile": self.get_device_profile(),
                 "ItemId": self.item["Id"],
                 "PlaySessionId": playSessionId,
