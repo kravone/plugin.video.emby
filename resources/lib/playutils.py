@@ -52,7 +52,7 @@ class PlayUtils(object):
 
             if info['SupportsDirectPlay']:
                 play_method = "DirectPlay"
-                playurl = info['Path']
+                playurl = info['Path'].encode('utf-8')
 
             elif info['SupportsDirectStream']:
                 play_method = "DirectStream"
