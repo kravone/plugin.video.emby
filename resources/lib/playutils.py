@@ -3,14 +3,13 @@
 #################################################################################################
 
 import logging
-import sys
 
 import xbmcgui
 import xbmcvfs
 
 import clientinfo
 import downloadutils
-from utils import window, settings, language as lang
+from utils import window, settings
 
 #################################################################################################
 
@@ -26,11 +25,12 @@ class PlayUtils(object):
 
     def __init__(self, item, transcode=False, server_id=None):
 
-        self.client_info = clientinfo.ClientInfo()
-        self.doutils = downloadutils.DownloadUtils().downloadUrl
         self.item = item
         self._force_transcode = transcode
         self.server_id = server_id
+
+        self.client_info = clientinfo.ClientInfo()
+        self.doutils = downloadutils.DownloadUtils().downloadUrl
 
         if server_id is None:
             server = window('emby_server.json')
@@ -359,7 +359,7 @@ class PlayUtils(object):
 
         return playurl
 
-    def audioSubsPref(self, url, listitem):
+    '''def audioSubsPref(self, url, listitem):
 
         dialog = xbmcgui.Dialog()
         # For transcoding only
@@ -463,4 +463,4 @@ class PlayUtils(object):
         else:
             playurlprefs += "&AudioBitrate=192000"
 
-        return playurlprefs
+        return playurlprefs'''
