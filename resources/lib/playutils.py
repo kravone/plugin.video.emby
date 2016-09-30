@@ -130,7 +130,9 @@ class PlayUtils(object):
                     score += stream['Width']*10000 
 
             # Always verify if can be directly played
-            if self._supports_directplay(mediasource):
+            mediasource = self._supports_directplay(mediasource)
+            if mediasource['SupportsDirectPlay']:
+                #highest score if the we support direct play
                 score += 100000000
 
             # Direct stream also scores well, compared to transcode
@@ -218,7 +220,7 @@ class PlayUtils(object):
             mediasource['SupportsDirectPlay'] = False
             mediasource['SupportsDirectStream'] = False
 
-        return mediasource['SupportsDirectPlay']
+        return mediasource
     
     def _get_device_profile(self):
         return {
