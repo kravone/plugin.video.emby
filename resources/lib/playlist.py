@@ -105,7 +105,7 @@ class Playlist(object):
     @classmethod
     def add_to_xbmc_playlist(cls, playlist, item):
 
-        playurl = playutils.PlayUtils(item).getPlayUrl()
+        playurl = playutils.PlayUtils(item).get_playurl()
         if not playurl:
             log.info("Failed to retrieve playurl")
             return

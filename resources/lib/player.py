@@ -429,7 +429,7 @@ class Player(xbmc.Player):
             if data:
                 
                 log.debug("Item path: %s" % item)
-                log.info("Item data: %s" % data)
+                log.debug("Item data: %s" % data)
 
                 runtime = data['runtime']
                 currentPosition = data['currentPosition']

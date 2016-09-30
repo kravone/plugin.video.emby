@@ -54,7 +54,7 @@ class PlaybackUtils():
         playutils = putils.PlayUtils(self.item)
 
         log.info("Play called.")
-        playurl = playutils.getPlayUrl()
+        playurl = playutils.get_playurl()
         if not playurl:
             return xbmcplugin.setResolvedUrl(int(sys.argv[1]), False, listitem)
 
@@ -124,7 +124,7 @@ class PlaybackUtils():
                         for intro in intros['Items']:
                             # The server randomly returns intros, process them.
                             introListItem = xbmcgui.ListItem()
-                            introPlayurl = putils.PlayUtils(intro).getPlayUrl()
+                            introPlayurl = putils.PlayUtils(intro).get_playurl()
                             log.info("Adding Intro: %s" % introPlayurl)
 
                             # Set listitem and properties for intros
@@ -157,7 +157,7 @@ class PlaybackUtils():
                 for part in parts['Items']:
 
                     additionalListItem = xbmcgui.ListItem()
-                    additionalPlayurl = putils.PlayUtils(part).getPlayUrl()
+                    additionalPlayurl = putils.PlayUtils(part).get_playurl()
                     log.info("Adding additional part: %s" % partcount)
 
                     # Set listitem and properties for each additional parts

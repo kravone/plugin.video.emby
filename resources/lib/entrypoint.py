@@ -450,7 +450,7 @@ def getThemeMedia():
             if playback == "DirectPlay":
                 playurl = putils.directPlay()
             else:
-                playurl = putils.directStream()
+                playurl = putils.direct_stream()
             pathstowrite += ('<file>%s</file>' % playurl.encode('utf-8'))
         
         # Check if the item has theme songs and add them   
@@ -463,7 +463,7 @@ def getThemeMedia():
             if playback == "DirectPlay":
                 playurl = putils.directPlay()
             else:
-                playurl = putils.directStream()
+                playurl = putils.direct_stream()
             pathstowrite += ('<file>%s</file>' % playurl.encode('utf-8'))
 
         nfo_file.write(
@@ -511,7 +511,7 @@ def getThemeMedia():
             if playback == "DirectPlay":
                 playurl = putils.directPlay()
             else:
-                playurl = putils.directStream()
+                playurl = putils.direct_stream()
             pathstowrite += ('<file>%s</file>' % playurl.encode('utf-8'))
 
         nfo_file.write(
