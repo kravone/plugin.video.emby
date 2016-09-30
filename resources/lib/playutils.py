@@ -139,7 +139,7 @@ class PlayUtils(object):
 
             score = 0
 
-            #transform filepath to kodi compliant
+            # Transform filepath to kodi compliant
             if mediasource['Protocol'] == "File":
                 mediasource['Path'] = self._get_file_path(mediasource['Path'])
 
@@ -222,13 +222,10 @@ class PlayUtils(object):
 
     def supports_direct_play(self, mediasource):
         # Figure out if the path can be directly played
-        direct = False
+        if mediasource['SupportsDirectPlay']:
+            mediasource['SupportsDirectPlay'] = xbmcvfs.exists(mediasource['Path'])
 
-        if mediasource['SupportsDirectPlay'] and settings('playFromStream') == "false":
-            direct = xbmcvfs.exists(mediasource['Path'])
-            mediasource['SupportsDirectPlay'] = direct
-        
-        return direct
+        return mediasource['SupportsDirectPlay']
     
     def _get_device_profile(self):
         return {
