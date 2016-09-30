@@ -21,12 +21,15 @@ log = logging.getLogger("EMBY."+__name__)
 
 class PlayUtils(object):
 
+    _force_transcode = False
 
-    def __init__(self, item, server_id=None):
+
+    def __init__(self, item, transcode=False, server_id=None):
 
         self.client_info = clientinfo.ClientInfo()
         self.doutils = downloadutils.DownloadUtils().downloadUrl
         self.item = item
+        self._force_transcode = transcode
         self.server_id = server_id
 
         if server_id is None:
@@ -177,7 +180,6 @@ class PlayUtils(object):
 
     def _supports_directplay(self, mediasource):
         # Figure out if the path can be directly played
-        force_transcode = False
         mediasource['SupportsDirectPlay'] = xbmcvfs.exists(mediasource['Path']) == 1
 
         if 'Path' in self.item and self.item['Path'].endswith('.strm'):
@@ -191,7 +193,7 @@ class PlayUtils(object):
         profiles = set([x['Profile'] for x in mediasource['MediaStreams'] if 'Profile' in x])    
 
         if hi10p and "H264" in video_track and "High 10" in profiles:
-            force_transcode = True
+            self._force_transcode = True
 
         if int(h265) and any(track in video_track for track in ("HEVC", "H265")):
             # Avoid H265/HEVC depending on the resolution
@@ -203,9 +205,9 @@ class PlayUtils(object):
             }
             log.info("Resolution is: %sP - transcode: %sP or higher", video_res, res[h265])
             if res[h265] <= video_res:
-                force_transcode = True
+                self._force_transcode = True
 
-        if force_transcode: # Unsupported format
+        if self._force_transcode: # Unsupported format
             mediasource['SupportsDirectPlay'] = False
             mediasource['SupportsDirectStream'] = False
 
@@ -350,7 +352,7 @@ class PlayUtils(object):
                 filename = "stream.%s?static=true" % item['Container']
             else:
                 filename = "stream.mp3?static=true"
-                
+
             playurl = "%s/emby/Audio/%s/%s" % (self.server, self.item['Id'], filename)
         else:
             playurl = "%s/emby/Videos/%s/stream?static=true" % (self.server, self.item['Id'])
