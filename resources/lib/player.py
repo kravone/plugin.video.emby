@@ -36,8 +36,8 @@ class Player(xbmc.Player):
 
         self.__dict__ = self._shared_state
 
-        self.clientInfo = clientinfo.ClientInfo()
-        self.doUtils = downloadutils.DownloadUtils().downloadUrl
+        self.client_info = clientinfo.ClientInfo()
+        self.doutils = downloadutils.DownloadUtils().downloadUrl
         self.ws = wsc.WebSocketClient()
         self.xbmcplayer = xbmc.Player()
 
@@ -206,7 +206,7 @@ class Player(xbmc.Player):
 
                 # Post playback to server
                 log.debug("Sending POST play started: %s." % postdata)
-                self.doUtils(url, postBody=postdata, action_type="POST")
+                self.doutils(url, postBody=postdata, action_type="POST")
                 
                 # Ensure we do have a runtime
                 try:
@@ -429,7 +429,7 @@ class Player(xbmc.Player):
             if data:
                 
                 log.debug("Item path: %s" % item)
-                log.debug("Item data: %s" % data)
+                log.info("Item data: %s" % data)
 
                 runtime = data['runtime']
                 currentPosition = data['currentPosition']
@@ -470,19 +470,12 @@ class Player(xbmc.Player):
                         if resp:
                             url = "{server}/emby/Items/%s?format=json" % itemid
                             log.info("Deleting request: %s" % itemid)
-                            self.doUtils(url, action_type="DELETE")
+                            self.doutils(url, action_type="DELETE")
                         else:
                             log.info("User skipped deletion.")
 
 
                 self.stopPlayback(data)
-
-                # Stop transcoding
-                if playMethod == "Transcode":
-                    log.info("Transcoding for %s terminated." % itemid)
-                    deviceId = self.clientInfo.get_device_id()
-                    url = "{server}/emby/Videos/ActiveEncodings?DeviceId=%s" % deviceId
-                    self.doUtils(url, action_type="DELETE")
 
                 path = xbmc.translatePath(
                        "special://profile/addon_data/plugin.video.emby/temp/").decode('utf-8')
@@ -497,22 +490,29 @@ class Player(xbmc.Player):
         
         log.debug("stopPlayback called")
         
-        itemId = data['item_id']
-        currentPosition = data['currentPosition']
-        positionTicks = int(currentPosition * 10000000)
+        item_id = data['item_id']
+        current_position = data['currentPosition']
+        ticks = int(current_position * 10000000)
 
         url = "{server}/emby/Sessions/Playing/Stopped"
         postdata = {
-            
-            'ItemId': itemId,
-            'MediaSourceId': itemId,
-            'PositionTicks': positionTicks
+            'ItemId': item_id,
+            'MediaSourceId': item_id,
+            'PositionTicks': ticks
         }
-        self.doUtils(url, postBody=postdata, action_type="POST")
+        self.doutils(url, postBody=postdata, action_type="POST")
+
+        # Stop transcoding
+        if data['playmethod'] == "Transcode":
+
+            device_id = self.clientInfo.get_device_id()
+            url = "{server}/emby/Videos/ActiveEncodings?DeviceId=%s" % device_id
+            self.doutils(url, action_type="DELETE")
+            log.info("Transcoding for %s terminated." % item_id)
         
-        #If needed, close any livestreams
+        # If needed, close any livestreams
         livestreamid = window("emby_%s.livestreamid" % self.currentFile)
         if livestreamid:
             url = "{server}/emby/LiveStreams/Close"
-            postdata = { 'LiveStreamId': livestreamid }
-            self.doUtils(url, postBody=postdata, action_type="POST")
+            postdata = {'LiveStreamId': livestreamid}
+            self.doutils(url, postBody=postdata, action_type="POST")

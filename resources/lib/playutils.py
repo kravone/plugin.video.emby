@@ -198,7 +198,7 @@ class PlayUtils(object):
         }
         info = self.doutils(url, postBody=body, action_type="POST", server_id=self.server_id)
         log.info("getLiveStream: %s", info)
-        info['MediaSource']['SupportsDirectPlay'] = self.supports_direct_play(info['MediaSource']) 
+        self.supports_direct_play(info['MediaSource']) 
 
         return info['MediaSource']
             
@@ -221,11 +221,14 @@ class PlayUtils(object):
         return path
 
     def supports_direct_play(self, mediasource):
-        #Figure out if the path can be directly played as the bool returned from the server
-        #response is not 100% reliable
-        result = False if settings('playFromStream') == "true" else xbmcvfs.exists(path)
-        mediasource['SupportsDirectPlay'] = result
-        return result
+        # Figure out if the path can be directly played
+        direct = False
+
+        if mediasource['SupportsDirectPlay'] and settings('playFromStream') == "false":
+            direct = xbmcvfs.exists(mediasource['Path'])
+            mediasource['SupportsDirectPlay'] = direct
+        
+        return direct
     
     def _get_device_profile(self):
         return {
