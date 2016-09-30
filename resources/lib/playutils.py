@@ -161,9 +161,9 @@ class PlayUtils(object):
         }
         info = self.doutils(url, postBody=body, action_type="POST", server_id=self.server_id)
         log.info("getLiveStream: %s", info)
-        self._supports_directplay(info['MediaSource']) 
+        info = self._supports_directplay(info['MediaSource']) 
 
-        return info['MediaSource']
+        return info
             
     def _get_file_path(self, path):
 
