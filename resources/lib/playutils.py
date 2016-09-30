@@ -159,7 +159,7 @@ class PlayUtils(object):
         }
         info = self.doutils(url, postBody=body, action_type="POST", server_id=self.server_id)
         log.info("getLiveStream: %s", info)
-        self._supports_direct_play(info['MediaSource']) 
+        self._supports_directplay(info['MediaSource']) 
 
         return info['MediaSource']
             
@@ -190,7 +190,7 @@ class PlayUtils(object):
             mediasource['SupportsDirectPlay'] = True
 
         # Force transcode according to settings
-        video_track = mediasource['Name']
+        video_track = mediasource.get('Name',"")
         h265 = settings('transcodeH265') or 0
         hi10p = settings('transcodeHi10P') == "true"
         vc1 = settings('transcodeVC1') == "true"
