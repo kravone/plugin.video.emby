@@ -60,9 +60,12 @@ class PlayUtils(object):
 
             elif info['SupportsTranscoding']:
                 play_method = "Transcode"
-                playurl = self.server + info['TranscodingUrl']
-                if 'LiveStreamId' not in info:
-                    playurl = playurl.replace("stream.ts", "master.m3u8")
+                if 'TranscodingUrl' in info:
+                    playurl = self.server + info['TranscodingUrl']
+                    if 'LiveStreamId' not in info:
+                        playurl = playurl.replace("stream.ts", "master.m3u8")
+                else:
+                    playurl = self._transcoding()
             else:
                 raise KeyError("Invalid playurl")
 
@@ -190,12 +193,13 @@ class PlayUtils(object):
         video_track = mediasource['Name']
         h265 = settings('transcodeH265') or 0
         hi10p = settings('transcodeHi10P') == "true"
+        vc1 = settings('transcodeVC1') == "true"
         profiles = set([x['Profile'] for x in mediasource['MediaStreams'] if 'Profile' in x])    
 
         if hi10p and "H264" in video_track and "High 10" in profiles:
             self._force_transcode = True
 
-        if int(h265) and any(track in video_track for track in ("HEVC", "H265")):
+        elif int(h265) and any(track in video_track for track in ("HEVC", "H265")):
             # Avoid H265/HEVC depending on the resolution
             video_res = int(video_track.split("P", 1)[0])
             res = {
@@ -206,6 +210,9 @@ class PlayUtils(object):
             log.info("Resolution is: %sP - transcode: %sP or higher", video_res, res[h265])
             if res[h265] <= video_res:
                 self._force_transcode = True
+
+        elif vc1 and "VC1" in video_track:
+            self._force_transcode = True
 
         if self._force_transcode: # Unsupported format
             mediasource['SupportsDirectPlay'] = False
@@ -358,6 +365,19 @@ class PlayUtils(object):
             playurl = "%s/emby/Videos/%s/stream?static=true" % (self.server, self.item['Id'])
 
         return playurl
+
+    def _transcoding(self):
+
+        item_id = self.item['Id'] 
+        device_id = self.client_info.get_device_id() 
+
+        playurl = ("%s/emby/Videos/%s/master.m3u8?MediaSourceId=%s"
+                   % (self.server, item_id, item_id)) 
+        playurl = ( 
+            "%s&VideoCodec=h264&AudioCodec=ac3&MaxAudioChannels=6&deviceId=%s&VideoBitrate=%s" 
+            % (playurl, device_id, self._get_bitrate()))
+
+        return playurl 
 
     '''def audioSubsPref(self, url, listitem):
 
