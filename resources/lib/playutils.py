@@ -56,7 +56,7 @@ class PlayUtils(object):
 
             elif info['SupportsDirectStream']:
                 play_method = "DirectStream"
-                playurl = self._direct_stream()
+                playurl = self.direct_stream()
 
             elif info['SupportsTranscoding']:
                 play_method = "Transcode"
