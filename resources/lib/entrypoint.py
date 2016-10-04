@@ -36,11 +36,22 @@ log = logging.getLogger("EMBY."+__name__)
 #################################################################################################
 
 
-def doPlayback(itemId, dbId):
+def doPlayback(item_id, db_id):
 
     emby = embyserver.Read_EmbyServer()
-    item = emby.getItem(itemId)
-    pbutils.PlaybackUtils(item).play(itemId, dbId)
+    
+    item = emby.getItem(item_id)
+    if item:
+        pbutils.PlaybackUtils(item).play(item_id, db_id)
+    else:
+        dialog(type_="notification",
+               heading="{emby}",
+               message=lang(33095),
+               icon=xbmcgui.NOTIFICATION_ERROR,
+               time=2500,
+               sound=False)
+        log.error("unable to retrieve content metadata, aborting playback")
+        return xbmcplugin.setResolvedUrl(int(sys.argv[1]), False, xbmcgui.ListItem())
 
 ##### DO RESET AUTH #####
 def resetAuth():
