@@ -42,7 +42,7 @@ class Main(object):
         base_url = sys.argv[0]
         path = sys.argv[2]
         params = urlparse.parse_qs(path[1:])
-        log.warn("Parameter string: %s", path)
+        log.debug("Parameter string: %s", path)
         try:
             mode = params['mode'][0]
         except (IndexError, KeyError):
