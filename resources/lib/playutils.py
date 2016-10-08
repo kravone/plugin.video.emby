@@ -98,6 +98,10 @@ class PlayUtils(object):
         log.info("getPlaybackInfo: %s", info)
 
         mediasource = self._get_optimal_mediasource(info['MediaSources'])
+        if mediasource['Protocol'] == "Http":
+            # Just play the url as is
+            return mediasource
+
         if mediasource and mediasource['RequiresOpening']:
             mediasource = self._get_live_stream(info['PlaySessionId'], mediasource)
 
