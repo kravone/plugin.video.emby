@@ -130,7 +130,8 @@ class PlayUtils(object):
                     score += stream['Width']*10000 
 
             # Always verify if can be directly played
-            mediasource = self._supports_directplay(mediasource)
+            if mediasource['Protocol'] != "Http":
+                mediasource = self._supports_directplay(mediasource)
             if mediasource['SupportsDirectPlay']:
                 #highest score if the we support direct play
                 score += 100000000
