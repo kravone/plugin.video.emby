@@ -443,6 +443,8 @@ class Player(xbmc.Player):
                 # Prevent manually mark as watched in Kodi monitor
                 window('emby_skipWatched%s' % itemid, value="true")
 
+                self.stopPlayback(data)
+
                 if currentPosition and runtime:
                     try:
                         percentComplete = (currentPosition * 10000000) / int(runtime)
@@ -474,9 +476,6 @@ class Player(xbmc.Player):
                             self.doutils(url, action_type="DELETE")
                         else:
                             log.info("User skipped deletion.")
-
-
-                self.stopPlayback(data)
 
                 path = xbmc.translatePath(
                        "special://profile/addon_data/plugin.video.emby/temp/").decode('utf-8')
