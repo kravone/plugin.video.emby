@@ -131,6 +131,7 @@ def doMainListing():
     xbmcplugin.endOfDirectory(int(sys.argv[1]))
 
 def emby_connect():
+
     # Login user to emby connect
     connect = connectmanager.ConnectManager()
     try:

@@ -22,6 +22,7 @@ import read_embyserver as embyserver
 import userclient
 import videonodes
 from utils import window, settings, language as lang
+from ga_client import GoogleAnalytics
 
 ##################################################################################################
 
@@ -75,9 +76,13 @@ class LibrarySync(threading.Thread):
 
     def startSync(self):
 
+        ga = GoogleAnalytics()
+    
         # Run at start up - optional to use the server plugin
         if settings('SyncInstallRunDone') == "true":
-
+        
+            ga.sendEventData("SyncAction", "FastSync")
+        
             # Validate views
             self.refreshViews()
             completed = False
@@ -99,6 +104,7 @@ class LibrarySync(threading.Thread):
                 completed = ManualSync().sync()
         else:
             # Install sync is not completed
+            ga.sendEventData("SyncAction", "FullSync")
             completed = self.fullSync()
 
         return completed
@@ -969,6 +975,9 @@ class LibrarySync(threading.Thread):
             elif "401" in e:
                 pass
         except Exception as e:
+            ga = GoogleAnalytics()
+            errStrings = ga.formatException()
+            ga.sendEventData("Exception", errStrings[0], errStrings[1])
             window('emby_dbScan', clear=True)
             log.exception(e)
             xbmcgui.Dialog().ok(
@@ -976,7 +985,8 @@ class LibrarySync(threading.Thread):
                         line1=(
                             "Library sync thread has exited! "
                             "You should restart Kodi now. "
-                            "Please report this on the forum."))
+                            "Please report this on the forum."),
+                        line2=(errStrings[0] + " (" + errStrings[1] + ")"))
 
     def run_internal(self):
 

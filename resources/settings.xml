@@ -53,7 +53,7 @@
 	    <setting id="enableExternalSubs" type="bool" label="Enable external subs for direct stream" default="true" />
 	    <setting id="transcodeH265" type="enum" label="30522" default="0" values="Disabled|480p(and higher)|720p(and higher)|1080p" />
 	    <setting id="transcodeHi10P" type="bool" label="30537" default="false"/>
-	    <setting id="transcodeVC1" type="bool" label="30546" default="false" />
+	    <setting id="transcodeVC1" type="bool" label="30547" default="false" />
 	    <setting id="markPlayed" type="number" visible="false" default="90" />
 	    <setting id="failedCount" type="number" visible="false" default="0" />
 	    <setting id="networkCreds" type="text" visible="false" default="" />
@@ -76,6 +76,7 @@
 	
 	<category label="30022"><!-- Advanced -->
 		<setting id="logLevel" type="enum" label="30004" values="Disabled|Info|Debug" default="1" />
+		<setting id="metricLogging" type="bool" label="30546" default="true" />
 		<setting id="startupDelay" type="number" label="30529" default="0" option="int" />
 		<setting label="30239" type="action" action="RunPlugin(plugin://plugin.video.emby?mode=reset)" option="close" />
 		<setting label="30535" type="action" action="RunPlugin(plugin://plugin.video.emby?mode=deviceid)" />
