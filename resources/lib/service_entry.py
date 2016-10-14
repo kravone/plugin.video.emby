@@ -4,6 +4,7 @@
 
 import logging
 import sys
+import time
 import _strptime # Workaround for threads using datetime: _striptime is locked
 from datetime import datetime
 
@@ -41,7 +42,7 @@ class Service(object):
     library_thread = None
 
     last_progress = datetime.today()
-
+    lastMetricPing = time.time()
 
     def __init__(self):
 
@@ -66,7 +67,7 @@ class Service(object):
         # Reset window props for profile switch
         properties = [
 
-            "emby_online", "emby_serverStatus", "emby_onWake",
+            "emby_online", "emby_state.json" "emby_serverStatus", "emby_onWake",
             "emby_syncRunning", "emby_dbCheck", "emby_kodiScan",
             "emby_shouldStop", "emby_currUser", "emby_dbScan", "emby_sessionId",
             "emby_initialScan", "emby_customplaylist", "emby_playbackProps"
@@ -119,6 +120,14 @@ class Service(object):
 
                     # If an item is playing
                     if self.kodi_player.isPlaying():
+                        # ping metrics server to keep sessions alive while playing
+                        # ping every 5 min
+                        timeSinceLastPing = time.time() - self.lastMetricPing
+                        if(timeSinceLastPing > 300):
+                            self.lastMetricPing = time.time()
+                            ga = GoogleAnalytics()
+                            ga.sendEventData("PlayAction", "PlayPing")
+
                         self._report_progress()
 
                     elif not self.startup:
@@ -138,8 +147,7 @@ class Service(object):
                 # Wait until Emby server is online
                 # or Kodi is shut down.
                 self._server_online_check()
-
-
+                
             if self.monitor.waitForAbort(1):
                 # Abort was requested while waiting. We should exit
                 break
@@ -161,7 +169,7 @@ class Service(object):
 
             dialog(type_="notification",
                    heading="{emby}",
-                   message=("%s %s%s!"
+                   message=("%s %s %s"
                             % (lang(33000), self.userclient_thread.get_username().decode('utf-8'),
                                add_users.decode('utf-8'))),
                    icon="{emby}",
@@ -289,8 +297,8 @@ class Service(object):
 
     def shutdown(self):
 
-        ga = GoogleAnalytics()
-        ga.sendEventData("Application", "Shutdown")     
+        #ga = GoogleAnalytics()
+        #ga.sendEventData("Application", "Shutdown")     
 
         if self.userclient_running:
             self.userclient_thread.stop_client()

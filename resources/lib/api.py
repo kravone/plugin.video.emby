@@ -28,7 +28,6 @@ class API(object):
         played = False
         last_played = None
         resume = 0
-        user_rating = 0
 
         try:
             userdata = self.item['UserData']
@@ -37,15 +36,6 @@ class API(object):
         else:
             favorite = userdata['IsFavorite']
             likes = userdata.get('Likes')
-            # Userrating is based on likes and favourite
-            if favorite:
-                user_rating = 5
-            elif likes:
-                user_rating = 3
-            elif likes is False:
-                user_rating = 0
-            else:
-                user_rating = 1
 
             last_played = userdata.get('LastPlayedDate')
             if last_played:
@@ -72,8 +62,7 @@ class API(object):
             'PlayCount': playcount,
             'Played': played,
             'LastPlayedDate': last_played,
-            'Resume': resume,
-            'UserRating': user_rating
+            'Resume': resume
         }
 
     def get_people(self):
