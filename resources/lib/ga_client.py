@@ -5,6 +5,8 @@ import requests
 import logging
 import clientinfo
 import md5
+import xbmc
+import platform
 import xbmcgui
 from utils import window, settings, language as lang
 
@@ -22,7 +24,15 @@ class GoogleAnalytics():
         client_info = clientinfo.ClientInfo()
         self.version = client_info.get_version()
         self.device_id = client_info.get_device_id()
-        self.userAgent = "Emby4Kodi/" + self.version + " (" + client_info.get_platform() + ")"
+        
+        # user agent string, used for OS and Kodi version identification
+        kodi_ver = xbmc.getInfoLabel("System.BuildVersion")
+        if(not kodi_ver):
+            kodi_ver = "na"
+        kodi_ver = kodi_ver.strip()
+        if(kodi_ver.find(" ") > 0):
+            kodi_ver = kodi_ver[0:kodi_ver.find(" ")]
+        self.userAgent = "Kodi/" + kodi_ver + " (" + self.getUserAgentOS() + ")"
         
         # Use set user name
         self.user_name = settings('username') or settings('connectUsername') or 'None'
@@ -32,31 +42,55 @@ class GoogleAnalytics():
         self.user_name = md5.new(self.user_name).hexdigest()
         
         # resolution
-        self.height = xbmcgui.Window(10000).getHeight()
-        self.width = xbmcgui.Window(10000).getWidth()        
+        self.screen_mode = xbmc.getInfoLabel("System.ScreenMode")
+        self.screen_height = xbmc.getInfoLabel("System.ScreenHeight")
+        self.screen_width = xbmc.getInfoLabel("System.ScreenWidth")
+
+        self.lang = xbmc.getInfoLabel("System.Language")
     
+    def getUserAgentOS(self):
+    
+        if xbmc.getCondVisibility('system.platform.osx'):
+            return "Mac OS X"
+        elif xbmc.getCondVisibility('system.platform.ios'):
+            return "iOS"
+        elif xbmc.getCondVisibility('system.platform.windows'):
+            return "Windows NT"
+        elif xbmc.getCondVisibility('system.platform.android'):
+            return "Android"
+        elif xbmc.getCondVisibility('system.platform.linux.raspberrypi'):
+            return "Linux"
+        elif xbmc.getCondVisibility('system.platform.linux'):
+            return "Linux"
+        else:
+            return "Other"
+        
     def formatException(self):
         exc_type, exc_obj, exc_tb = sys.exc_info()
 		
-        stackFrames = traceback.extract_tb(exc_tb)
-        if(len(stackFrames) > 0):
-            stackFrames = traceback.extract_tb(exc_tb)[-1]
-        else:
-            stackFrames = None
-        log.error(str(stackFrames))
+        latestStackFrame = None
+        allStackFrames = traceback.extract_tb(exc_tb)
+        if(len(allStackFrames) > 0):
+            latestStackFrame = allStackFrames[-1]
+        log.error(str(latestStackFrame))
 		
         errorType = "NA"
         errorFile = "NA"
 		
-        if(stackFrames != None):
-            fileName = os.path.split(stackFrames[0])[1]
+        if(latestStackFrame != None):
+            fileName = os.path.split(latestStackFrame[0])[1]
+            
+            codeLine = "NA"
+            if(len(latestStackFrame) > 3 and latestStackFrame[3] != None):
+                codeLine = latestStackFrame[3].strip()
 
-            errorFile = "%s:%s(%s)(%s)" % (fileName, stackFrames[1], exc_obj.message, stackFrames[3].strip())
+            errorFile = "%s:%s(%s)(%s)" % (fileName, latestStackFrame[1], exc_obj.message, codeLine)
             errorFile = errorFile[0:499]
             errorType = "%s" % (exc_type.__name__)
-            del(exc_type, exc_obj, exc_tb)
             log.error(errorType + " - " + errorFile)
 			
+        del(exc_type, exc_obj, exc_tb)
+        
         return errorType, errorFile
 	
     def sendEventData(self, eventCategory, eventAction, eventLabel=None):
@@ -76,14 +110,17 @@ class GoogleAnalytics():
         data['cid'] = self.device_id # Client ID
         #data['uid'] = self.user_name # User ID
 
-        #data['ua'] = self.userAgent # user agent string
+        data['ua'] = self.userAgent # user agent string
         
         data['t'] = 'event' # action type
         data['ec'] = eventCategory # Event Category
         data['ea'] = eventAction # Event Action
         
-        # add width and height
-        data['sr'] = str(self.width) + "x" + str(self.height)
+        # add width and height, only add if full screen
+        if(self.screen_mode.lower().find("window") == -1):
+            data['sr'] = str(self.screen_width) + "x" + str(self.screen_height)
+        
+        data["ul"] = self.lang
 
         if(eventLabel != None):
             data['el'] = eventLabel # Event Label

@@ -64,6 +64,8 @@ class PlaybackUtils():
             self.setProperties(playurl, listitem)
             return xbmcplugin.setResolvedUrl(int(sys.argv[1]), True, listitem)
 
+        # TODO: Review once Krypton is RC, no need for workaround.
+
         ############### ORGANIZE CURRENT PLAYLIST ################
         
         homeScreen = xbmc.getCondVisibility('Window.IsActive(home)')
@@ -345,7 +347,7 @@ class PlaybackUtils():
         else:
             listItem.setArt({arttype: path})
 
-    def setListItem(self, listItem):
+    def setListItem(self, listItem, dbid=None):
 
         people = self.API.get_people()
         studios = self.API.get_studios()
@@ -367,6 +369,10 @@ class PlaybackUtils():
 
         if "Episode" in self.item['Type']:
             # Only for tv shows
+            # For Kodi Krypton
+            metadata['mediatype'] = "episode"
+            metadata['dbid'] = dbid
+
             thumbId = self.item.get('SeriesId')
             season = self.item.get('ParentIndexNumber', -1)
             episode = self.item.get('IndexNumber', -1)
@@ -375,6 +381,11 @@ class PlaybackUtils():
             metadata['TVShowTitle'] = show
             metadata['season'] = season
             metadata['episode'] = episode
+
+        if "Movie" in self.item['Type']:
+            # For Kodi Krypton
+            metadata['mediatype'] = "movie"
+            metadata['dbid'] = dbid
 
         listItem.setProperty('IsPlayable', 'true')
         listItem.setProperty('IsFolder', 'false')
