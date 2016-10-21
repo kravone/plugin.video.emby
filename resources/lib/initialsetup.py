@@ -79,10 +79,14 @@ class InitialSetup(object):
         if settings('server') == "":
             current_server = self.user_client.get_server()
             if current_server is not None:
-                server = self.connectmanager.get_server(current_server)
+                server = self.connectmanager.get_server(current_server,
+                                                        {'ssl': self.user_client.get_ssl()})
                 log.info("Detected: %s", server)
-                server_id = server['Servers'][0]['Id']
-                settings('serverId', value=server_id)
+                try:
+                    server_id = server['Servers'][0]['Id']
+                    settings('serverId', value=server_id)
+                except Exception as error:
+                    log.error(error)
                 log.info("server migration completed")
 
         self.user_client.get_userid()
@@ -95,17 +99,19 @@ class InitialSetup(object):
                 # Failed to identify server
                 return True
 
-            for server in current_state['Servers']:
-                if server['Id'] == settings('serverId'):
-                    # Update token
-                    server['UserId'] = settings('userId') or None
-                    server['AccessToken'] = settings('token') or None
-                    self.connectmanager.update_token(current_state['Servers'], server)
+            elif 'Servers' in current_state:
+                for server in current_state['Servers']:
+                    if server['Id'] == settings('serverId'):
+                        # Update token
+                        server['UserId'] = settings('userId') or None
+                        server['AccessToken'] = settings('token') or None
+                        self.connectmanager.update_token(current_state['Servers'], server)
 
-                    server_address = self.connectmanager.get_address(server)
-                    self._set_server(server_address, server)
-                    log.info("Found server!")
-                    return True
+                        server_address = self.connectmanager.get_address(server)
+                        self._set_server(server_address, server)
+                        log.info("Found server!")
+            
+            return True
 
         return False
 

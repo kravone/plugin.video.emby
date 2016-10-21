@@ -266,6 +266,10 @@ def deleteItem():
 ##### ADD ADDITIONAL USERS #####
 def addUser():
 
+    if window('emby_online') != "true":
+        log.info("server is offline")
+        return
+
     doUtils = downloadutils.DownloadUtils()
     art = artwork.Artwork()
     clientInfo = clientinfo.ClientInfo()
@@ -541,6 +545,10 @@ def getThemeMedia():
 
 ##### REFRESH EMBY PLAYLISTS #####
 def refreshPlaylist():
+
+    if window('emby_online') != "true":
+        log.info("server is offline")
+        return
 
     lib = librarysync.LibrarySync()
     dialog = xbmcgui.Dialog()

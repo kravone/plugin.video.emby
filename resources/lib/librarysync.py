@@ -234,18 +234,6 @@ class LibrarySync(threading.Thread):
 
         embyconn = utils.kodiSQL('emby')
         embycursor = embyconn.cursor()
-        # Create the tables for the emby database
-        # emby, view, version
-        embycursor.execute(
-            """CREATE TABLE IF NOT EXISTS emby(
-            emby_id TEXT UNIQUE, media_folder TEXT, emby_type TEXT, media_type TEXT, kodi_id INTEGER,
-            kodi_fileid INTEGER, kodi_pathid INTEGER, parent_id INTEGER, checksum INTEGER)""")
-        embycursor.execute(
-            """CREATE TABLE IF NOT EXISTS view(
-            view_id TEXT UNIQUE, view_name TEXT, media_type TEXT, kodi_tagid INTEGER)""")
-        embycursor.execute("CREATE TABLE IF NOT EXISTS version(idVersion TEXT)")
-        embyconn.commit()
-
         # content sync: movies, tvshows, musicvideos, music
         kodiconn = utils.kodiSQL('video')
         kodicursor = kodiconn.cursor()
@@ -763,7 +751,7 @@ class LibrarySync(threading.Thread):
             self.forceLibraryUpdate = True
             update_embydb = True
 
-        incSyncIndicator = int(settings('incSyncIndicator'))
+        incSyncIndicator = int(settings('incSyncIndicator') or 10)
         totalUpdates = len(self.addedItems) + len(self.updateItems) + len(self.userdataItems) + len(self.removeItems)
         
         if incSyncIndicator != -1 and totalUpdates > incSyncIndicator:
@@ -854,6 +842,23 @@ class LibrarySync(threading.Thread):
             # Database out of date.
             return False
 
+    def _verify_emby_database(cls):
+        # Create the tables for the emby database
+        conn = utils.kodiSQL('emby')
+        cursor = conn.cursor()
+        # emby, view, version
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS emby(
+            emby_id TEXT UNIQUE, media_folder TEXT, emby_type TEXT, media_type TEXT,
+            kodi_id INTEGER, kodi_fileid INTEGER, kodi_pathid INTEGER, parent_id INTEGER,
+            checksum INTEGER)""")
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS view(
+            view_id TEXT UNIQUE, view_name TEXT, media_type TEXT, kodi_tagid INTEGER)""")
+        cursor.execute("CREATE TABLE IF NOT EXISTS version(idVersion TEXT)")
+        
+        conn.commit()
+
     def run(self):
 
         try:
@@ -884,6 +889,9 @@ class LibrarySync(threading.Thread):
         startupComplete = False
 
         log.warn("---===### Starting LibrarySync ###===---")
+
+        # Verify database structure, otherwise create it.
+        self._verify_emby_database()
 
         while not self.monitor.abortRequested():
 
@@ -963,7 +971,7 @@ class LibrarySync(threading.Thread):
                 startupComplete = True
 
             # Process updates
-            if window('emby_dbScan') != "true":
+            if window('emby_dbScan') != "true" and window('emby_shouldStop') != "true":
                 self.incrementalSync()
 
             if window('emby_onWake') == "true" and window('emby_online') == "true":

@@ -53,7 +53,7 @@
 	    <setting id="enableExternalSubs" type="bool" label="Enable external subs for direct stream" default="true" />
 	    <setting id="transcodeH265" type="enum" label="30522" default="0" values="Disabled|480p(and higher)|720p(and higher)|1080p" />
 	    <setting id="transcodeHi10P" type="bool" label="30537" default="false"/>
-	    <setting id="transcodeVC1" type="bool" label="30547" default="false" />
+	    <setting id="transcodeVC1" type="bool" label="30548" default="false" />
 	    <setting id="markPlayed" type="number" visible="false" default="90" />
 	    <setting id="failedCount" type="number" visible="false" default="0" />
 	    <setting id="networkCreds" type="text" visible="false" default="" />
@@ -69,6 +69,7 @@
 		<setting id="connectMsg" type="bool" label="30249" default="true" />
 		<setting id="offlinetMsg" type="bool" label="30545" default="true" />
         <setting id="restartMsg" type="bool" label="30530" default="false" />
+        <setting id="displayMessage" type="slider" label="30547" default="4" range="4,1,20" option="int" />
         <setting id="newContent" type="bool" label="30531" default="false" />
         <setting id="newvideotime" type="number" label="30532" visible="eq(-1,true)" default="5" option="int" subsetting="true" />
         <setting id="newmusictime" type="number" label="30533" visible="eq(-2,true)" default="2" option="int" subsetting="true" />
