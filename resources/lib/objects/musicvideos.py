@@ -8,8 +8,8 @@ import urllib
 import api
 import embydb_functions as embydb
 import _kodi_musicvideos
-from _common import Items
-from utils import window, language as lang, catch_except
+from _common import Items, catch_except
+from utils import window, settings, language as lang
 
 ##################################################################################################
 
@@ -28,6 +28,8 @@ class MusicVideos(Items):
         self.kodicursor = kodicursor
         self.kodi_db = _kodi_musicvideos.KodiMusicVideos(self.kodicursor)
         self.pdialog = pdialog
+
+        self.new_time = int(settings('newvideotime'))*1000
 
         Items.__init__(self)
 

@@ -9,8 +9,8 @@ import api
 import embydb_functions as embydb
 import musicutils
 import _kodi_music
-from _common import Items
-from utils import window, settings, language as lang, catch_except
+from _common import Items, catch_except
+from utils import window, settings, language as lang
 
 ##################################################################################################
 
@@ -528,8 +528,11 @@ class Music(Items):
                 artist_full = emby.getItem(artist_eid)
                 self.add_updateArtist(artist_full)
                 artist_edb = emby_db.getItem_byId(artist_eid)
-                artistid = artist_edb[0]
-            finally:
+                artistid = artist_edb[0] if artist_edb else None
+            except Exception:
+                artistid = None
+
+            if artistid:
                 # Link song to artist
                 self.kodi_db.link_song_artist(artistid, songid, index, artist_name)
 

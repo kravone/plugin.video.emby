@@ -77,39 +77,39 @@ class InitialSetup(object):
 
         ###$ Begin migration $###
         if settings('server') == "":
-            current_server = self.user_client.get_server()
-            if current_server is not None:
-                server = self.connectmanager.get_server(current_server,
-                                                        {'ssl': self.user_client.get_ssl()})
-                log.info("Detected: %s", server)
-                try:
-                    server_id = server['Servers'][0]['Id']
-                    settings('serverId', value=server_id)
-                except Exception as error:
-                    log.error(error)
-                log.info("server migration completed")
+            self.user_client.get_server()
+            log.info("server migration completed")
 
         self.user_client.get_userid()
         self.user_client.get_token()
         ###$ End migration $###
 
-        if settings('server'):
-            current_state = self.connectmanager.get_state()
-            if current_state['State'] == STATE['ConnectSignIn']:
-                # Failed to identify server
-                return True
+        current_server = self.user_client.get_server()
+        if current_server and not settings('serverId'):
+            server = self.connectmanager.get_server(current_server,
+                                                        {'ssl': self.user_client.get_ssl()})
+            log.info("Detected: %s", server)
+            try:
+                server_id = server['Servers'][0]['Id']
+                settings('serverId', value=server_id)
+            except Exception as error:
+                log.error(error)
 
-            elif 'Servers' in current_state:
+        if current_server:
+            current_state = self.connectmanager.get_state()
+            try:
                 for server in current_state['Servers']:
                     if server['Id'] == settings('serverId'):
                         # Update token
                         server['UserId'] = settings('userId') or None
                         server['AccessToken'] = settings('token') or None
-                        self.connectmanager.update_token(current_state['Servers'], server)
+                        self.connectmanager.update_token(server)
 
                         server_address = self.connectmanager.get_address(server)
                         self._set_server(server_address, server)
                         log.info("Found server!")
+            except Exception as error:
+                log.error(error)
             
             return True
 

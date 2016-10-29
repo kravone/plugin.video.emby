@@ -396,7 +396,7 @@ class LibrarySync(threading.Thread):
 
         # Get views
         result = self.doUtils("{server}/emby/Users/{UserId}/Views?format=json")
-        grouped_views = result['Items']
+        grouped_views = result['Items'] if 'Items' in result else []
         ordered_views = self.emby.getViews(sortedlist=True)
         all_views = []
         sorted_views = []
@@ -630,9 +630,7 @@ class LibrarySync(threading.Thread):
             pdialog.update(heading=lang(29999), message=lang(33018))
 
         boxsets = self.emby.getBoxset(dialog=pdialog)
-        total = boxsets['TotalRecordCount']
-
-        movies.process_all("BoxSet", "added", boxsets['Items'], total)
+        movies.add_all("BoxSet", boxsets)
         log.debug("Boxsets finished.")
 
         return True
@@ -830,8 +828,11 @@ class LibrarySync(threading.Thread):
         # It returns True is database is up to date. False otherwise.
         log.info("current: %s minimum: %s" % (current, minimum))
 
-        currMajor, currMinor, currPatch = current.split(".")
-        minMajor, minMinor, minPatch = minimum.split(".")
+        try:
+            currMajor, currMinor, currPatch = current.split(".")
+            minMajor, minMinor, minPatch = minimum.split(".")
+        except ValueError as error:
+            raise ValueError("Unable to compare versions: %s, %s" % (current, minimum))
 
         if currMajor > minMajor:
             return True
@@ -842,6 +843,7 @@ class LibrarySync(threading.Thread):
             # Database out of date.
             return False
 
+    @classmethod
     def _verify_emby_database(cls):
         # Create the tables for the emby database
         conn = utils.kodiSQL('emby')
@@ -910,8 +912,8 @@ class LibrarySync(threading.Thread):
                 emby_db = embydb.Embydb_Functions(embycursor)
                 currentVersion = emby_db.get_version()
                 ###$ Begin migration $###
-                if currentVersion is None:
-                    currentVersion = emby_db.get_version(settings('dbCreatedWithVersion'))
+                if not currentVersion:
+                    currentVersion = emby_db.get_version(settings('dbCreatedWithVersion') or self.clientInfo.get_version())
                     embyconn.commit()
                     log.info("Migration of database version completed")
                 ###$ End migration $###

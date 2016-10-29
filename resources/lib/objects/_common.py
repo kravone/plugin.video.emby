@@ -12,13 +12,32 @@ import api
 import artwork
 import downloadutils
 import read_embyserver as embyserver
+from ga_client import GoogleAnalytics
 from utils import window, settings, dialog, language as lang, should_stop
 
 ##################################################################################################
 
 log = logging.getLogger("EMBY."+__name__)
+ga = GoogleAnalytics()
 
 ##################################################################################################
+
+def catch_except(errors=(Exception, ), default_value=False):
+# Will wrap method with try/except and print parameters for easier debugging
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except errors as error:
+                errStrings = ga.formatException()
+                ga.sendEventData("Exception", errStrings[0], errStrings[1])
+                log.exception(error)
+                log.error("function: %s \n args: %s \n kwargs: %s",
+                          func.__name__, args, kwargs)
+                return default_value
+
+        return wrapper
+    return decorator
 
 
 class Items(object):
@@ -43,10 +62,11 @@ class Items(object):
     @classmethod
     def path_validation(cls, path):
         # Verify if direct path is accessible or not
+        verify_path = path
         if not os.path.supports_unicode_filenames:
-            path = path.encode('utf-8')
+            verify_path = path.encode('utf-8')
 
-        if window('emby_pathverified') != "true" and not xbmcvfs.exists(path):
+        if window('emby_pathverified') != "true" and not xbmcvfs.exists(verify_path):
             if dialog(type_="yesno",
                       heading="{emby}",
                       line1="%s %s. %s" % (lang(33047), path, lang(33048))):
@@ -145,6 +165,9 @@ class Items(object):
         update_list = self._compare_checksum(items, compare_to)
         log.info("Update for %s: %s", view_name, update_list)
 
+        if self.should_stop():
+            return False
+
         emby_items = self.emby.getFullItems(update_list)
         total = len(update_list)
 
@@ -167,7 +190,7 @@ class Items(object):
         for item in items:
 
             if self.should_stop():
-                return False
+                break
 
             item_id = item['Id']
 

@@ -20,6 +20,7 @@ import videonodes
 import websocket_client as wsc
 from utils import window, settings, dialog, language as lang
 from ga_client import GoogleAnalytics
+import md5
 
 #################################################################################################
 
@@ -156,9 +157,13 @@ class Service(object):
         self.shutdown()
 
     def _startup(self):
-
+        
+        serverId = settings('serverId')
+        if(serverId != None):
+            serverId = md5.new(serverId).hexdigest()
+        
         ga = GoogleAnalytics()
-        ga.sendEventData("Application", "Startup")    
+        ga.sendEventData("Application", "Startup", serverId)
 
         # Start up events
         self.warn_auth = True
@@ -166,11 +171,13 @@ class Service(object):
         username = self.userclient_thread.get_username()
         if settings('connectMsg') == "true" and username:
             # Get additional users
-            add_users = ", ".join(settings('additionalUsers').split(','))
+            add_users = settings('additionalUsers')
+            if add_users:
+                add_users = ", "+", ".join(add_users.split(','))
 
             dialog(type_="notification",
                    heading="{emby}",
-                   message=("%s %s %s"
+                   message=("%s %s%s"
                             % (lang(33000), username.decode('utf-8'),
                                add_users.decode('utf-8'))),
                    icon="{emby}",
@@ -211,7 +218,7 @@ class Service(object):
 
                 self.server_online = False
 
-            elif window('emby_online') == "sleep":
+            elif window('emby_online') in ("sleep", "reset"):
                 # device going to sleep
                 if self.websocket_running:
                     self.websocket_thread.stop_client()

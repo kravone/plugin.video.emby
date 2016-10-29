@@ -8,8 +8,8 @@ import urllib
 import api
 import embydb_functions as embydb
 import _kodi_movies
-from _common import Items
-from utils import window, settings, language as lang, catch_except
+from _common import Items, catch_except
+from utils import window, settings, language as lang
 
 ##################################################################################################
 
@@ -44,7 +44,7 @@ class Movies(Items):
             }
         elif item_type == "BoxSet":
             actions = {
-                'added': self.add_updateBoxset,
+                'added': self.added_boxset,
                 'update': self.add_updateBoxset,
                 'remove': self.remove
             }

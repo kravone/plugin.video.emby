@@ -17,12 +17,13 @@ log = logging.getLogger("EMBY."+__name__.split('.')[-1])
 
 class Credentials(object):
 
+    _shared_state = {} # Borg
     credentials = None
     path = ""
     
 
     def __init__(self):
-        pass
+        self.__dict__ = self._shared_state
 
     def setPath(self, path):
         # Path to save persistant data.txt
@@ -33,7 +34,7 @@ class Credentials(object):
         if self.credentials is None:
             try:
                 with open(os.path.join(self.path, 'data.txt')) as infile:
-                    self.credentials = json.load(infile)
+                    self.credentials = json.load(unicode(infile))
             
             except Exception as e: # File is either empty or missing
                 log.warn(e)
@@ -53,7 +54,7 @@ class Credentials(object):
             self.credentials = data
             # Set credentials to file
             with open(os.path.join(self.path, 'data.txt'), 'w') as outfile:
-                json.dump(data, outfile, indent=4, ensure_ascii=False)
+                json.dump(unicode(data), outfile, indent=4, ensure_ascii=False)
         else:
             self._clear()
 
