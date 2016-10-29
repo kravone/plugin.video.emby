@@ -4,6 +4,7 @@
 
 import logging
 import sys
+import time
 import _strptime # Workaround for threads using datetime: _striptime is locked
 from datetime import datetime
 
@@ -19,6 +20,7 @@ import videonodes
 import websocket_client as wsc
 from utils import window, settings, dialog, language as lang
 from ga_client import GoogleAnalytics
+import md5
 
 #################################################################################################
 
@@ -41,7 +43,7 @@ class Service(object):
     library_thread = None
 
     last_progress = datetime.today()
-
+    lastMetricPing = time.time()
 
     def __init__(self):
 
@@ -66,7 +68,7 @@ class Service(object):
         # Reset window props for profile switch
         properties = [
 
-            "emby_online", "emby_serverStatus", "emby_onWake",
+            "emby_online", "emby_state.json", "emby_serverStatus", "emby_onWake",
             "emby_syncRunning", "emby_dbCheck", "emby_kodiScan",
             "emby_shouldStop", "emby_currUser", "emby_dbScan", "emby_sessionId",
             "emby_initialScan", "emby_customplaylist", "emby_playbackProps"
@@ -119,6 +121,14 @@ class Service(object):
 
                     # If an item is playing
                     if self.kodi_player.isPlaying():
+                        # ping metrics server to keep sessions alive while playing
+                        # ping every 5 min
+                        timeSinceLastPing = time.time() - self.lastMetricPing
+                        if(timeSinceLastPing > 300):
+                            self.lastMetricPing = time.time()
+                            ga = GoogleAnalytics()
+                            ga.sendEventData("PlayAction", "PlayPing")
+
                         self._report_progress()
 
                     elif not self.startup:
@@ -138,8 +148,7 @@ class Service(object):
                 # Wait until Emby server is online
                 # or Kodi is shut down.
                 self._server_online_check()
-
-
+                
             if self.monitor.waitForAbort(1):
                 # Abort was requested while waiting. We should exit
                 break
@@ -148,21 +157,28 @@ class Service(object):
         self.shutdown()
 
     def _startup(self):
-
+        
+        serverId = settings('serverId')
+        if(serverId != None):
+            serverId = md5.new(serverId).hexdigest()
+        
         ga = GoogleAnalytics()
-        ga.sendEventData("Application", "Startup")    
+        ga.sendEventData("Application", "Startup", serverId)
 
         # Start up events
         self.warn_auth = True
 
-        if settings('connectMsg') == "true":
+        username = self.userclient_thread.get_username()
+        if settings('connectMsg') == "true" and username:
             # Get additional users
-            add_users = ", ".join(settings('additionalUsers').split(','))
+            add_users = settings('additionalUsers')
+            if add_users:
+                add_users = ", "+", ".join(add_users.split(','))
 
             dialog(type_="notification",
                    heading="{emby}",
-                   message=("%s %s %s"
-                            % (lang(33000), self.userclient_thread.get_username().decode('utf-8'),
+                   message=("%s %s%s"
+                            % (lang(33000), username.decode('utf-8'),
                                add_users.decode('utf-8'))),
                    icon="{emby}",
                    time=2000,
@@ -202,7 +218,7 @@ class Service(object):
 
                 self.server_online = False
 
-            elif window('emby_online') == "sleep":
+            elif window('emby_online') in ("sleep", "reset"):
                 # device going to sleep
                 if self.websocket_running:
                     self.websocket_thread.stop_client()
@@ -289,8 +305,8 @@ class Service(object):
 
     def shutdown(self):
 
-        ga = GoogleAnalytics()
-        ga.sendEventData("Application", "Shutdown")     
+        #ga = GoogleAnalytics()
+        #ga.sendEventData("Application", "Shutdown")     
 
         if self.userclient_running:
             self.userclient_thread.stop_client()

@@ -3,20 +3,41 @@
 ##################################################################################################
 
 import logging
+import os
 
 import xbmc
 import xbmcvfs
 
+import api
 import artwork
 import downloadutils
 import read_embyserver as embyserver
+from ga_client import GoogleAnalytics
 from utils import window, settings, dialog, language as lang, should_stop
 
 ##################################################################################################
 
 log = logging.getLogger("EMBY."+__name__)
+ga = GoogleAnalytics()
 
 ##################################################################################################
+
+def catch_except(errors=(Exception, ), default_value=False):
+# Will wrap method with try/except and print parameters for easier debugging
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except errors as error:
+                errStrings = ga.formatException()
+                ga.sendEventData("Exception", errStrings[0], errStrings[1])
+                log.exception(error)
+                log.error("function: %s \n args: %s \n kwargs: %s",
+                          func.__name__, args, kwargs)
+                return default_value
+
+        return wrapper
+    return decorator
 
 
 class Items(object):
@@ -41,7 +62,11 @@ class Items(object):
     @classmethod
     def path_validation(cls, path):
         # Verify if direct path is accessible or not
-        if window('emby_pathverified') != "true" and not xbmcvfs.exists(path):
+        verify_path = path
+        if not os.path.supports_unicode_filenames:
+            verify_path = path.encode('utf-8')
+
+        if window('emby_pathverified') != "true" and not xbmcvfs.exists(verify_path):
             if dialog(type_="yesno",
                       heading="{emby}",
                       line1="%s %s. %s" % (lang(33047), path, lang(33048))):
@@ -132,3 +157,47 @@ class Items(object):
 
             if update:
                 self.count += 1
+
+    def compare(self, item_type, items, compare_to, view=None):
+
+        view_name = view['name'] if view else item_type
+
+        update_list = self._compare_checksum(items, compare_to)
+        log.info("Update for %s: %s", view_name, update_list)
+
+        if self.should_stop():
+            return False
+
+        emby_items = self.emby.getFullItems(update_list)
+        total = len(update_list)
+
+        if self.pdialog:
+            self.pdialog.update(heading="Processing %s / %s items" % (view_name, total))
+
+        # Process additions and updates
+        if emby_items:
+            self.process_all(item_type, "update", emby_items, total, view)
+        # Process deletes
+        if compare_to:
+            self.remove_all(item_type, compare_to.items())
+
+        return True
+
+    def _compare_checksum(self, items, compare_to):
+
+        update_list = list()
+
+        for item in items:
+
+            if self.should_stop():
+                break
+
+            item_id = item['Id']
+
+            if compare_to.get(item_id) != api.API(item).get_checksum():
+                # Only update if item is not in Kodi or checksum is different
+                update_list.append(item_id)
+
+            compare_to.pop(item_id, None)
+
+        return update_list

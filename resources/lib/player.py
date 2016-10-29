@@ -231,6 +231,7 @@ class Player(xbmc.Player):
 
                 ga = GoogleAnalytics()
                 ga.sendEventData("PlayAction", itemType, playMethod)
+                ga.sendScreenView(itemType)
 
     def reportPlayback(self):
         
@@ -476,6 +477,9 @@ class Player(xbmc.Player):
                     xbmcvfs.delete("%s%s" % (path, file))
     
         self.played_info.clear()
+        
+        ga = GoogleAnalytics()
+        ga.sendEventData("PlayAction", "Stopped")
     
     def stopPlayback(self, data):
         

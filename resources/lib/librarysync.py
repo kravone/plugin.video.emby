@@ -81,9 +81,6 @@ class LibrarySync(threading.Thread):
     
         # Run at start up - optional to use the server plugin
         if settings('SyncInstallRunDone') == "true":
-        
-            ga.sendEventData("SyncAction", "FastSync")
-        
             # Validate views
             self.refreshViews()
             completed = False
@@ -97,11 +94,13 @@ class LibrarySync(threading.Thread):
                     if plugin['Name'] == "Emby.Kodi Sync Queue":
                         log.debug("Found server plugin.")
                         self.isFastSync = True
+                        ga.sendEventData("SyncAction", "FastSync")
                         completed = self.fastSync()
                         break
 
             if not completed:
                 # Fast sync failed or server plugin is not found
+                ga.sendEventData("SyncAction", "Sync")
                 completed = ManualSync().sync()
         else:
             # Install sync is not completed
@@ -235,18 +234,6 @@ class LibrarySync(threading.Thread):
 
         embyconn = utils.kodiSQL('emby')
         embycursor = embyconn.cursor()
-        # Create the tables for the emby database
-        # emby, view, version
-        embycursor.execute(
-            """CREATE TABLE IF NOT EXISTS emby(
-            emby_id TEXT UNIQUE, media_folder TEXT, emby_type TEXT, media_type TEXT, kodi_id INTEGER,
-            kodi_fileid INTEGER, kodi_pathid INTEGER, parent_id INTEGER, checksum INTEGER)""")
-        embycursor.execute(
-            """CREATE TABLE IF NOT EXISTS view(
-            view_id TEXT UNIQUE, view_name TEXT, media_type TEXT, kodi_tagid INTEGER)""")
-        embycursor.execute("CREATE TABLE IF NOT EXISTS version(idVersion TEXT)")
-        embyconn.commit()
-
         # content sync: movies, tvshows, musicvideos, music
         kodiconn = utils.kodiSQL('video')
         kodicursor = kodiconn.cursor()
@@ -409,7 +396,7 @@ class LibrarySync(threading.Thread):
 
         # Get views
         result = self.doUtils("{server}/emby/Users/{UserId}/Views?format=json")
-        grouped_views = result['Items']
+        grouped_views = result['Items'] if 'Items' in result else []
         ordered_views = self.emby.getViews(sortedlist=True)
         all_views = []
         sorted_views = []
@@ -605,6 +592,11 @@ class LibrarySync(threading.Thread):
             log.info("Removing views: %s" % current_views)
             for view in current_views:
                 emby_db.removeView(view)
+                # Remove any items that belongs to the old view
+                items = emby_db.get_item_by_view(view)
+                items = [i[0] for i in items] # Convert list of tuple to list
+                self.triage_items("remove", items)
+
 
     def movies(self, embycursor, kodicursor, pdialog):
 
@@ -638,9 +630,7 @@ class LibrarySync(threading.Thread):
             pdialog.update(heading=lang(29999), message=lang(33018))
 
         boxsets = self.emby.getBoxset(dialog=pdialog)
-        total = boxsets['TotalRecordCount']
-
-        movies.process_all("BoxSet", "added", boxsets['Items'], total)
+        movies.add_all("BoxSet", boxsets)
         log.debug("Boxsets finished.")
 
         return True
@@ -759,7 +749,7 @@ class LibrarySync(threading.Thread):
             self.forceLibraryUpdate = True
             update_embydb = True
 
-        incSyncIndicator = int(settings('incSyncIndicator'))
+        incSyncIndicator = int(settings('incSyncIndicator') or 10)
         totalUpdates = len(self.addedItems) + len(self.updateItems) + len(self.userdataItems) + len(self.removeItems)
         
         if incSyncIndicator != -1 and totalUpdates > incSyncIndicator:
@@ -838,8 +828,11 @@ class LibrarySync(threading.Thread):
         # It returns True is database is up to date. False otherwise.
         log.info("current: %s minimum: %s" % (current, minimum))
 
-        currMajor, currMinor, currPatch = current.split(".")
-        minMajor, minMinor, minPatch = minimum.split(".")
+        try:
+            currMajor, currMinor, currPatch = current.split(".")
+            minMajor, minMinor, minPatch = minimum.split(".")
+        except ValueError as error:
+            raise ValueError("Unable to compare versions: %s, %s" % (current, minimum))
 
         if currMajor > minMajor:
             return True
@@ -849,6 +842,24 @@ class LibrarySync(threading.Thread):
         else:
             # Database out of date.
             return False
+
+    @classmethod
+    def _verify_emby_database(cls):
+        # Create the tables for the emby database
+        conn = utils.kodiSQL('emby')
+        cursor = conn.cursor()
+        # emby, view, version
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS emby(
+            emby_id TEXT UNIQUE, media_folder TEXT, emby_type TEXT, media_type TEXT,
+            kodi_id INTEGER, kodi_fileid INTEGER, kodi_pathid INTEGER, parent_id INTEGER,
+            checksum INTEGER)""")
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS view(
+            view_id TEXT UNIQUE, view_name TEXT, media_type TEXT, kodi_tagid INTEGER)""")
+        cursor.execute("CREATE TABLE IF NOT EXISTS version(idVersion TEXT)")
+        
+        conn.commit()
 
     def run(self):
 
@@ -881,6 +892,9 @@ class LibrarySync(threading.Thread):
 
         log.warn("---===### Starting LibrarySync ###===---")
 
+        # Verify database structure, otherwise create it.
+        self._verify_emby_database()
+
         while not self.monitor.abortRequested():
 
             # In the event the server goes offline
@@ -898,8 +912,8 @@ class LibrarySync(threading.Thread):
                 emby_db = embydb.Embydb_Functions(embycursor)
                 currentVersion = emby_db.get_version()
                 ###$ Begin migration $###
-                if currentVersion is None:
-                    currentVersion = emby_db.get_version(settings('dbCreatedWithVersion'))
+                if not currentVersion:
+                    currentVersion = emby_db.get_version(settings('dbCreatedWithVersion') or self.clientInfo.get_version())
                     embyconn.commit()
                     log.info("Migration of database version completed")
                 ###$ End migration $###
@@ -959,7 +973,7 @@ class LibrarySync(threading.Thread):
                 startupComplete = True
 
             # Process updates
-            if window('emby_dbScan') != "true":
+            if window('emby_dbScan') != "true" and window('emby_shouldStop') != "true":
                 self.incrementalSync()
 
             if window('emby_onWake') == "true" and window('emby_online') == "true":

@@ -9,6 +9,7 @@ import logging
 import sqlite3
 import StringIO
 import os
+import sys
 import time
 import unicodedata
 import xml.etree.ElementTree as etree
@@ -17,6 +18,7 @@ from datetime import datetime
 import xbmc
 import xbmcaddon
 import xbmcgui
+import xbmcplugin
 import xbmcvfs
 
 #################################################################################################
@@ -225,32 +227,19 @@ def querySQL(query, args=None, cursor=None, conntype=None):
 
 def getScreensaver():
     # Get the current screensaver value
-    query = {
-
-        'jsonrpc': "2.0",
-        'id': 0,
-        'method': "Settings.getSettingValue",
-        'params': {
-
-            'setting': "screensaver.mode"
-        }
-    }
-    return json.loads(xbmc.executeJSONRPC(json.dumps(query)))['result']['value']
+    result = JSONRPC('Settings.getSettingValues').execute({'setting': "screensaver.mode"})
+    try:
+        return result['result']['value']
+    except KeyError:
+        return ""
 
 def setScreensaver(value):
     # Toggle the screensaver
-    query = {
-
-        'jsonrpc': "2.0",
-        'id': 0,
-        'method': "Settings.setSettingValue",
-        'params': {
-
-            'setting': "screensaver.mode",
-            'value': value
-        }
+    params = {
+        'setting': "screensaver.mode",
+        'value': value
     }
-    result = xbmc.executeJSONRPC(json.dumps(query))
+    result = JSONRPC('Settings.setSettingValue').execute(params)
     log.info("Toggling screensaver: %s %s" % (value, result))
 
 def convertDate(date):
@@ -367,6 +356,7 @@ def reset():
         return
 
     # first stop any db sync
+    window('emby_online', value="reset")
     window('emby_shouldStop', value="true")
     count = 10
     while window('emby_dbScan') == "true":
@@ -421,7 +411,7 @@ def reset():
             cursor.execute("DELETE FROM " + tablename)
     cursor.execute('DROP table IF EXISTS emby')
     cursor.execute('DROP table IF EXISTS view')
-    cursor.execute("DELETE FROM version")
+    cursor.execute("DROP table IF EXISTS version")
     connection.commit()
     cursor.close()
 
@@ -449,6 +439,7 @@ def reset():
 
     dialog.ok(heading=language(29999), line1=language(33088))
     xbmc.executebuiltin('RestartApp')
+    return xbmcplugin.setResolvedUrl(int(sys.argv[1]), False, xbmcgui.ListItem())
 
 def sourcesXML():
     # To make Master lock compatible

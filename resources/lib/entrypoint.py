@@ -174,9 +174,13 @@ def emby_backup():
     database = os.path.join(backup, "Database")
     xbmcvfs.mkdir(database)
 
+    # Emby database
+    shutil.copy(src=xbmc.translatePath("special://database/emby.db").decode('utf-8'),
+                dst=database)
+    # Videos database
     shutil.copy(src=utils.getKodiVideoDBPath(),
                 dst=database)
-    
+    # Music database
     if settings('enableMusic') == "true":
         shutil.copy(src=utils.getKodiMusicDBPath(),
                     dst=database)
@@ -254,6 +258,10 @@ def deleteItem():
 
 ##### ADD ADDITIONAL USERS #####
 def addUser():
+
+    if window('emby_online') != "true":
+        log.info("server is offline")
+        return
 
     doUtils = downloadutils.DownloadUtils()
     art = artwork.Artwork()
@@ -360,9 +368,14 @@ def addUser():
             break
         window('EmbyAdditionalUserImage.%s' % i, clear=True)
 
-    url = "{server}/emby/Sessions?DeviceId=%s" % deviceId
+    url = "{server}/emby/Sessions?DeviceId=%s&format=json" % deviceId
     result = doUtils.downloadUrl(url)
-    additionalUsers = result[0]['AdditionalUsers']
+    try:
+        additionalUsers = result[0]['AdditionalUsers']
+    except (KeyError, TypeError) as error:
+        log.error(error)
+        additionaluser = []
+
     count = 0
     for additionaluser in additionalUsers:
         userid = additionaluser['UserId']
@@ -396,9 +409,7 @@ def getThemeMedia():
         xbmcvfs.mkdir(library)
 
     # Set custom path for user
-    tvtunes_path = xbmc.translatePath(
-        "special://profile/addon_data/script.tvtunes/").decode('utf-8')
-    if xbmcvfs.exists(tvtunes_path):
+    if xbmc.getCondVisibility('System.HasAddon(script.tvtunes)'):
         tvtunes = xbmcaddon.Addon(id="script.tvtunes")
         tvtunes.setSetting('custom_path_enable', "true")
         tvtunes.setSetting('custom_path', library)
@@ -530,6 +541,10 @@ def getThemeMedia():
 
 ##### REFRESH EMBY PLAYLISTS #####
 def refreshPlaylist():
+
+    if window('emby_online') != "true":
+        log.info("server is offline")
+        return
 
     lib = librarysync.LibrarySync()
     dialog = xbmcgui.Dialog()
@@ -795,6 +810,12 @@ def createListItem(item):
         'Playcount': item['playcount']
     }
 
+    if "episodeid" in item:
+        # Listitem of episode
+        metadata['mediatype'] = "episode"
+        metadata['dbid'] = item['episodeid']
+
+    # TODO: Review once Krypton is RC - probably no longer needed if there's dbid
     if "episode" in item:
         episode = item['episode']
         metadata['Episode'] = episode
@@ -842,7 +863,7 @@ def createListItem(item):
     for key, value in item['streamdetails'].iteritems():
         for stream in value:
             li.addStreamInfo(key, stream)
-    
+
     return li
 
 ##### GET NEXTUP EPISODES FOR TAGNAME #####    

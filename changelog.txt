@@ -1,3 +1,33 @@
+version 2.3.1
+- minor fixes
+
+version 2.3.0
+- New stable version
+
+version 2.2.57
+- Fix for external subtitles while using HTTP playback
+- Minor bug fixes
+
+version 2.2.52-54
+- Fix bugs that slipped in the few previous builds
+
+version 2.2.51
+- Rework manual sync
+- Review OS
+- Review view removal
+
+version 2.2.50
+- Add Kodi version to logging
+
+version 2.2.49
+- Add OS, Resolution and Lang to logging
+
+version 2.2.47
+- Small fix for logging
+
+version 2.2.46
+- Error logging improvments
+
 version 2.2.43
 - Review music
 - Clean up syncing code

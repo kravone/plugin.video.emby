@@ -173,10 +173,11 @@ class ConnectionManager(object):
 
         self._getHeaders(request)
         request['timeout'] = request.get('timeout') or self.default_timeout
-        request['verify'] = False
+        request['verify'] = request.get('ssl') or False
 
         action = request['type']
-        request.pop('type')
+        request.pop('type', None)
+        request.pop('ssl', None)
 
         log.debug("ConnectionManager requesting %s" % request)
 
@@ -263,9 +264,15 @@ class ConnectionManager(object):
         
         log.debug("MultiGroup      : %s" % str(MULTI_GROUP))
         log.debug("Sending UDP Data: %s" % MESSAGE)
-        sock.sendto(MESSAGE, MULTI_GROUP)
-        
+
         servers = []
+
+        try:
+            sock.sendto(MESSAGE, MULTI_GROUP)
+        except Exception as error:
+            log.error(error)
+            return servers
+
         while True:
             try:
                 data, addr = sock.recvfrom(1024) # buffer size
@@ -301,7 +308,7 @@ class ConnectionManager(object):
             return self._resolveFailure()
 
         try:
-            publicInfo = self._tryConnect(address)
+            publicInfo = self._tryConnect(address, options=options)
         except Exception:
             return _onFail()
         else:
@@ -337,7 +344,7 @@ class ConnectionManager(object):
         self._saveUserInfoIntoCredentials(server, result['User'])
         self.credentialProvider.getCredentials(credentials)
 
-    def _tryConnect(self, url, timeout=None):
+    def _tryConnect(self, url, timeout=None, options={}):
 
         url = self.getEmbyServerUrl(url, "system/info/public")
         log.info("tryConnect url: %s" % url)
@@ -347,7 +354,8 @@ class ConnectionManager(object):
             'type': "GET",
             'url': url,
             'dataType': "json",
-            'timeout': timeout
+            'timeout': timeout,
+            'ssl': options.get('ssl')
         })
 
     def _addAppInfoToConnectRequest(self):
@@ -530,7 +538,7 @@ class ConnectionManager(object):
 
         log.info("testing connection mode %s with server %s" % (mode, server['Name']))
         try:
-            result = self._tryConnect(address, timeout)
+            result = self._tryConnect(address, timeout, options)
         
         except Exception:
             log.error("test failed for connection mode %s with server %s" % (mode, server['Name']))
@@ -563,7 +571,7 @@ class ConnectionManager(object):
 
                 if server.get('ExchangeToken'):
                     
-                    self._addAuthenticationInfoFromConnect(server, connectionMode, credentials)
+                    self._addAuthenticationInfoFromConnect(server, connectionMode, credentials, options)
 
         return self._afterConnectValidated(server, credentials, systemInfo, connectionMode, True, options)
 
@@ -576,7 +584,7 @@ class ConnectionManager(object):
         elif (verifyLocalAuthentication and server.get('AccessToken') and 
             options.get('enableAutoLogin') is not False):
 
-            if self._validateAuthentication(server, connectionMode) is not False:
+            if self._validateAuthentication(server, connectionMode, options) is not False:
                 return self._afterConnectValidated(server, credentials, systemInfo, connectionMode, False, options)
 
             return
@@ -600,13 +608,14 @@ class ConnectionManager(object):
         # Connected
         return result
 
-    def _validateAuthentication(self, server, connectionMode):
+    def _validateAuthentication(self, server, connectionMode, options={}):
 
         url = getServerAddress(server, connectionMode)
         request = {
 
             'type': "GET",
             'url': self.getEmbyServerUrl(url, "System/Info"),
+            'ssl': options.get('ssl'),
             'dataType': "json",
             'headers': {
                 'X-MediaBrowser-Token': server['AccessToken']
@@ -621,6 +630,7 @@ class ConnectionManager(object):
 
                     'type': "GET",
                     'url': self.getEmbyServerUrl(url, "users/%s" % server['UserId']),
+                    'ssl': options.get('ssl'),
                     'dataType': "json",
                     'headers': {
                         'X-MediaBrowser-Token': server['AccessToken']
@@ -659,6 +669,7 @@ class ConnectionManager(object):
             credentials = self.credentialProvider.getCredentials()
             credentials['ConnectAccessToken'] = result['AccessToken']
             credentials['ConnectUserId'] = result['User']['Id']
+            credentials['ConnectUser'] = result['User']['DisplayName']
             self.credentialProvider.getCredentials(credentials)
             # Signed in
             self._onConnectUserSignIn(result['User'])
@@ -690,7 +701,7 @@ class ConnectionManager(object):
             }
         })
 
-    def _addAuthenticationInfoFromConnect(self, server, connectionMode, credentials):
+    def _addAuthenticationInfoFromConnect(self, server, connectionMode, credentials, options={}):
 
         if not server.get('ExchangeToken'):
             raise KeyError("server['ExchangeToken'] cannot be null")
@@ -708,6 +719,7 @@ class ConnectionManager(object):
                 'url': url,
                 'type': "GET",
                 'dataType': "json",
+                'ssl': options.get('ssl'),
                 'params': {
                     'ConnectUserId': credentials['ConnectUserId']
                 },
@@ -753,7 +765,7 @@ class ConnectionManager(object):
 
         if len(servers) == 1:
             result = self.connectToServer(servers[0], options)
-            if result.get('State') == ConnectionState['Unavailable']:
+            if result and result.get('State') == ConnectionState['Unavailable']:
                 result['State'] = ConnectionState['ConnectSignIn'] if result['ConnectUser'] == None else ConnectionState['ServerSelection']
 
             log.info("resolving connectToServers with result['State']: %s" % result)
