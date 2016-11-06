@@ -4,6 +4,7 @@
 
 import logging
 import os
+import sqlite3
 
 import xbmc
 import xbmcvfs
@@ -28,9 +29,12 @@ def catch_except(errors=(Exception, ), default_value=False):
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
+            except sqlite3.OperationalError as error:
+                if "database is locked" in error:
+                    raise
             except errors as error:
                 errStrings = ga.formatException()
-                ga.sendEventData("Exception", errStrings[0], errStrings[1])
+                ga.sendEventData("Exception", errStrings[0], errStrings[1], True)
                 log.exception(error)
                 log.error("function: %s \n args: %s \n kwargs: %s",
                           func.__name__, args, kwargs)

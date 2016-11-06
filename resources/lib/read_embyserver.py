@@ -8,7 +8,9 @@ import hashlib
 import xbmc
 
 import downloadutils
-from utils import window, settings, kodiSQL
+import database
+from utils import window, settings
+from contextlib import closing
 
 #################################################################################################
 
@@ -25,9 +27,12 @@ class Read_EmbyServer():
     def __init__(self):
 
         self.doUtils = downloadutils.DownloadUtils().downloadUrl
-
+        self.database = database.DatabaseConn
         self.userId = window('emby_currUser')
         self.server = window('emby_server%s' % self.userId)
+
+    def get_emby_url(self, handler):
+        return "{server}/emby/%s" % handler
 
 
     def split_list(self, itemlist, size):
@@ -102,24 +107,23 @@ class Read_EmbyServer():
                 viewId = view['Id']
 
         # Compare to view table in emby database
-        emby = kodiSQL('emby')
-        cursor_emby = emby.cursor()
-        query = ' '.join((
+        with self.database('emby') as conn:
+            with closing(conn.cursor()) as cursor:
+                query = ' '.join((
 
-            "SELECT view_name, media_type",
-            "FROM view",
-            "WHERE view_id = ?"
-        ))
-        cursor_emby.execute(query, (viewId,))
-        result = cursor_emby.fetchone()
-        try:
-            viewName = result[0]
-            mediatype = result[1]
-        except TypeError:
-            viewName = None
-            mediatype = None
+                    "SELECT view_name, media_type",
+                    "FROM view",
+                    "WHERE view_id = ?"
+                ))
+                cursor.execute(query, (viewId,))
+                result = cursor.fetchone()
+                try:
+                    viewName = result[0]
+                    mediatype = result[1]
+                except TypeError:
+                    viewName = None
+                    mediatype = None
 
-        cursor_emby.close()
 
         return [viewName, viewId, mediatype]
     
@@ -311,19 +315,22 @@ class Read_EmbyServer():
                         log.info("Increase jump limit to: %s" % jump)
         return items
 
-    def getViews(self, mediatype="", root=False, sortedlist=False):
-        # Build a list of user views
-        views = []
-        mediatype = mediatype.lower()
+    def get_views(self, root=False):
 
         if not root:
             url = "{server}/emby/Users/{UserId}/Views?format=json"
         else: # Views ungrouped
             url = "{server}/emby/Users/{UserId}/Items?Sortby=SortName&format=json"
 
-        result = self.doUtils(url)
+        return self.doUtils(url)
+
+    def getViews(self, mediatype="", root=False, sortedlist=False):
+        # Build a list of user views
+        views = []
+        mediatype = mediatype.lower()
+
         try:
-            items = result['Items']
+            items = self.get_views(root)['Items']
         except TypeError:
             log.debug("Error retrieving views for type: %s" % mediatype)
         else:
@@ -586,3 +593,14 @@ class Read_EmbyServer():
         user = self.doUtils(url, postBody=data, action_type="POST", authenticate=False)
 
         return user
+
+    def get_single_item(self, media_type, parent_id):
+
+        params = {
+            'ParentId': parent_id,
+            'Recursive': True,
+            'Limit': 1,
+            'IncludeItemTypes': media_type
+        }
+        url = self.get_emby_url('Users/{UserId}/Items?format=json')
+        return self.doUtils(url, parameters=params)

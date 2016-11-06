@@ -17,13 +17,14 @@ import clientinfo
 import downloadutils
 import itemtypes
 import embydb_functions as embydb
-import kodidb_functions as kodidb
 import read_embyserver as embyserver
 import userclient
-import videonodes
+import views
 from objects import Movies, MusicVideos, TVShows, Music
 from utils import window, settings, language as lang, should_stop
 from ga_client import GoogleAnalytics
+from database import DatabaseConn, db_reset
+from contextlib import closing
 
 ##################################################################################################
 
@@ -58,7 +59,6 @@ class LibrarySync(threading.Thread):
         self.doUtils = downloadutils.DownloadUtils().downloadUrl
         self.user = userclient.UserClient()
         self.emby = embyserver.Read_EmbyServer()
-        self.vnodes = videonodes.VideoNodes()
 
         self.kodi_version = int(xbmc.getInfoLabel('System.BuildVersion')[:2])
 
@@ -232,123 +232,112 @@ class LibrarySync(threading.Thread):
         # Add sources
         utils.sourcesXML()
 
-        embyconn = utils.kodiSQL('emby')
-        embycursor = embyconn.cursor()
-        # content sync: movies, tvshows, musicvideos, music
-        kodiconn = utils.kodiSQL('video')
-        kodicursor = kodiconn.cursor()
+        # use emby and video DBs
+        with DatabaseConn('emby') as conn_emby, DatabaseConn('video') as conn_video:
+            with closing(conn_emby.cursor()) as cursor_emby, closing(conn_video.cursor()) as cursor_video:        
+                # content sync: movies, tvshows, musicvideos, music
 
-        if manualrun:
-            message = "Manual sync"
-        elif repair:
-            message = "Repair sync"
-            repair_list = []
-            choices = ['all', 'movies', 'musicvideos', 'tvshows']
-            if music_enabled:
-                choices.append('music')
+                if manualrun:
+                    message = "Manual sync"
+                elif repair:
+                    message = "Repair sync"
+                    repair_list = []
+                    choices = ['all', 'movies', 'musicvideos', 'tvshows']
+                    if music_enabled:
+                        choices.append('music')
 
-            if self.kodi_version > 15:
-                # Jarvis or higher
-                types = xbmcgui.Dialog().multiselect(lang(33094), choices)
-                if types is None:
-                    pass
-                elif 0 in types: # all
-                    choices.pop(0)
-                    repair_list.extend(choices)
+                    if self.kodi_version > 15:
+                        # Jarvis or higher
+                        types = xbmcgui.Dialog().multiselect(lang(33094), choices)
+                        if types is None:
+                            pass
+                        elif 0 in types: # all
+                            choices.pop(0)
+                            repair_list.extend(choices)
+                        else:
+                            for index in types:
+                                repair_list.append(choices[index])
+                    else:
+                        resp = xbmcgui.Dialog().select(lang(33094), choices)
+                        if resp == 0: # all
+                            choices.pop(resp)
+                            repair_list.extend(choices)
+                        else:
+                            repair_list.append(choices[resp])
+
+                    log.info("Repair queued for: %s", repair_list)
                 else:
-                    for index in types:
-                        repair_list.append(choices[index])
-            else:
-                resp = xbmcgui.Dialog().select(lang(33094), choices)
-                if resp == 0: # all
-                    choices.pop(resp)
-                    repair_list.extend(choices)
-                else:
-                    repair_list.append(choices[resp])
+                    message = "Initial sync"
+                    window('emby_initialScan', value="true")
 
-            log.info("Repair queued for: %s", repair_list)
-        else:
-            message = "Initial sync"
-            window('emby_initialScan', value="true")
+                pDialog = self.progressDialog("%s" % message)
+                starttotal = datetime.now()
 
-        pDialog = self.progressDialog("%s" % message)
-        starttotal = datetime.now()
+                # Set views
+                views.Views(cursor_emby, cursor_video).maintain()
+                conn_emby.commit()
+                #self.maintainViews(cursor_emby, cursor_video)
 
-        # Set views
-        self.maintainViews(embycursor, kodicursor)
-        embyconn.commit()
+                # Sync video library
+                process = {
 
-        # Sync video library
-        process = {
+                    'movies': self.movies,
+                    'musicvideos': self.musicvideos,
+                    'tvshows': self.tvshows
+                }
+                for itemtype in process:
 
-            'movies': self.movies,
-            'musicvideos': self.musicvideos,
-            'tvshows': self.tvshows
-        }
-        for itemtype in process:
+                    if repair and itemtype not in repair_list:
+                        continue
 
-            if repair and itemtype not in repair_list:
-                continue
+                    startTime = datetime.now()
+                    completed = process[itemtype](cursor_emby, cursor_video, pDialog)
+                    if not completed:
+                        xbmc.executebuiltin('InhibitIdleShutdown(false)')
+                        utils.setScreensaver(value=screensaver)
+                        window('emby_dbScan', clear=True)
+                        if pDialog:
+                            pDialog.close()
 
-            startTime = datetime.now()
-            completed = process[itemtype](embycursor, kodicursor, pDialog)
-            if not completed:
-                xbmc.executebuiltin('InhibitIdleShutdown(false)')
-                utils.setScreensaver(value=screensaver)
-                window('emby_dbScan', clear=True)
-                if pDialog:
-                    pDialog.close()
+                        return False
+                    else:
+                        elapsedTime = datetime.now() - startTime
+                        log.info("SyncDatabase (finished %s in: %s)"
+                            % (itemtype, str(elapsedTime).split('.')[0]))
 
-                embycursor.close()
-                kodicursor.close()
-                return False
-            else:
-                self.dbCommit(kodiconn)
-                embyconn.commit()
-                elapsedTime = datetime.now() - startTime
-                log.info("SyncDatabase (finished %s in: %s)"
-                    % (itemtype, str(elapsedTime).split('.')[0]))
-        else:
-            # Close the Kodi cursor
-            kodicursor.close()
-
+                         
         # sync music
-        if music_enabled:
-
+        # use emby and music
+        if music_enabled:                   
             if repair and 'music' not in repair_list:
                 pass
             else:
-                musicconn = utils.kodiSQL('music')
-                musiccursor = musicconn.cursor()
+                with DatabaseConn('emby') as conn_emby, DatabaseConn('music') as conn_music:
+                    with closing(conn_emby.cursor()) as cursor_emby, closing(conn_music.cursor()) as cursor_music:
+                        startTime = datetime.now()
+                        completed = self.music(cursor_emby, cursor_music, pDialog)
+                        if not completed:
+                            xbmc.executebuiltin('InhibitIdleShutdown(false)')
+                            utils.setScreensaver(value=screensaver)
+                            window('emby_dbScan', clear=True)
+                            if pDialog:
+                                pDialog.close()
 
-                startTime = datetime.now()
-                completed = self.music(embycursor, musiccursor, pDialog)
-                if not completed:
-                    xbmc.executebuiltin('InhibitIdleShutdown(false)')
-                    utils.setScreensaver(value=screensaver)
-                    window('emby_dbScan', clear=True)
-                    if pDialog:
-                        pDialog.close()
-
-                    embycursor.close()
-                    musiccursor.close()
-                    return False
-                else:
-                    musicconn.commit()
-                    embyconn.commit()
-                    elapsedTime = datetime.now() - startTime
-                    log.info("SyncDatabase (finished music in: %s)"
-                        % (str(elapsedTime).split('.')[0]))
-                musiccursor.close()
+                            return False
+                        else:
+                            elapsedTime = datetime.now() - startTime
+                            log.info("SyncDatabase (finished music in: %s)"
+                                % (str(elapsedTime).split('.')[0]))
 
         if pDialog:
             pDialog.close()
 
-        emby_db = embydb.Embydb_Functions(embycursor)
-        current_version = emby_db.get_version(self.clientInfo.get_version())
+        with DatabaseConn('emby') as conn_emby:
+            with closing(conn_emby.cursor()) as cursor_emby:
+                emby_db = embydb.Embydb_Functions(cursor_emby)
+                current_version = emby_db.get_version(self.clientInfo.get_version())
+                
         window('emby_version', current_version)
-        embyconn.commit()
-        embycursor.close()
 
         settings('SyncInstallRunDone', value="true")
 
@@ -372,231 +361,11 @@ class LibrarySync(threading.Thread):
 
 
     def refreshViews(self):
-
-        embyconn = utils.kodiSQL('emby')
-        embycursor = embyconn.cursor()
-        kodiconn = utils.kodiSQL('video')
-        kodicursor = kodiconn.cursor()
-
-        # Compare views, assign correct tags to items
-        self.maintainViews(embycursor, kodicursor)
-
-        self.dbCommit(kodiconn)
-        kodicursor.close()
-
-        embyconn.commit()
-        embycursor.close()
-
-    def maintainViews(self, embycursor, kodicursor):
-
-        # Compare the views to emby
-        emby = self.emby
-        emby_db = embydb.Embydb_Functions(embycursor)
-        kodi_db = kodidb.Kodidb_Functions(kodicursor)
-
-        # Get views
-        result = self.doUtils("{server}/emby/Users/{UserId}/Views?format=json")
-        grouped_views = result['Items'] if 'Items' in result else []
-        ordered_views = self.emby.getViews(sortedlist=True)
-        all_views = []
-        sorted_views = []
-        for view in ordered_views:
-            all_views.append(view['name'])
-            if view['type'] == "music":
-                continue
-
-            if view['type'] == "mixed":
-                sorted_views.append(view['name'])
-            sorted_views.append(view['name'])
-        log.info("Sorted views: %s" % sorted_views)
-
-        # total nodes for window properties
-        self.vnodes.clearProperties()
-        totalnodes = len(sorted_views) + 0
-
-        current_views = emby_db.getViews()
-        # Set views for supported media type
-        emby_mediatypes = {
-
-            'movies': "Movie",
-            'tvshows': "Series",
-            'musicvideos': "MusicVideo",
-            'homevideos': "Video",
-            'music': "Audio",
-            'photos': "Photo"
-        }
-        for mediatype in ['movies', 'tvshows', 'musicvideos', 'homevideos', 'music', 'photos']:
-
-            nodes = [] # Prevent duplicate for nodes of the same type
-            playlists = [] # Prevent duplicate for playlists of the same type
-            # Get media folders from server
-            folders = self.emby.getViews(mediatype, root=True)
-            for folder in folders:
-
-                folderid = folder['id']
-                foldername = folder['name']
-                viewtype = folder['type']
-
-                if foldername not in all_views:
-                    # Media folders are grouped into userview
-                    params = {
-                        'ParentId': folderid,
-                        'Recursive': True,
-                        'Limit': 1,
-                        'IncludeItemTypes': emby_mediatypes[mediatype]
-                    } # Get one item from server using the folderid
-                    url = "{server}/emby/Users/{UserId}/Items?format=json"
-                    result = self.doUtils(url, parameters=params)
-                    try:
-                        verifyitem = result['Items'][0]['Id']
-                    except (TypeError, IndexError):
-                        # Something is wrong. Keep the same folder name.
-                        # Could be the view is empty or the connection
-                        pass
-                    else:
-                        for grouped_view in grouped_views:
-                            # This is only reserved for the detection of grouped views
-                            if (grouped_view['Type'] == "UserView" and
-                                grouped_view.get('CollectionType') == mediatype):
-                                # Take the userview, and validate the item belong to the view
-                                if self.emby.verifyView(grouped_view['Id'], verifyitem):
-                                    # Take the name of the userview
-                                    log.info("Found corresponding view: %s %s"
-                                        % (grouped_view['Name'], grouped_view['Id']))
-                                    foldername = grouped_view['Name']
-                                    break
-                        else:
-                            # Unable to find a match, add the name to our sorted_view list
-                            sorted_views.append(foldername)
-                            log.info("Couldn't find corresponding grouped view: %s" % sorted_views)
-
-                # Failsafe
-                try:
-                    sorted_views.index(foldername)
-                except ValueError:
-                    sorted_views.append(foldername)
-
-                # Get current media folders from emby database
-                view = emby_db.getView_byId(folderid)
-                try:
-                    current_viewname = view[0]
-                    current_viewtype = view[1]
-                    current_tagid = view[2]
-
-                except TypeError:
-                    log.info("Creating viewid: %s in Emby database." % folderid)
-                    tagid = kodi_db.createTag(foldername)
-                    # Create playlist for the video library
-                    if (foldername not in playlists and
-                            mediatype in ('movies', 'tvshows', 'musicvideos')):
-                        utils.playlistXSP(mediatype, foldername, folderid, viewtype)
-                        playlists.append(foldername)
-                    # Create the video node
-                    if foldername not in nodes and mediatype not in ("musicvideos", "music"):
-                        self.vnodes.viewNode(sorted_views.index(foldername), foldername, mediatype,
-                            viewtype, folderid)
-                        if viewtype == "mixed": # Change the value
-                            sorted_views[sorted_views.index(foldername)] = "%ss" % foldername
-                        nodes.append(foldername)
-                        totalnodes += 1
-                    # Add view to emby database
-                    emby_db.addView(folderid, foldername, viewtype, tagid)
-
-                else:
-                    log.debug(' '.join((
-
-                        "Found viewid: %s" % folderid,
-                        "viewname: %s" % current_viewname,
-                        "viewtype: %s" % current_viewtype,
-                        "tagid: %s" % current_tagid)))
-
-                    # View is still valid
-                    try:
-                        current_views.remove(folderid)
-                    except ValueError:
-                        # View was just created, nothing to remove
-                        pass
-
-                    # View was modified, update with latest info
-                    if current_viewname != foldername:
-                        log.info("viewid: %s new viewname: %s" % (folderid, foldername))
-                        tagid = kodi_db.createTag(foldername)
-
-                        # Update view with new info
-                        emby_db.updateView(foldername, tagid, folderid)
-
-                        if mediatype != "music":
-                            if emby_db.getView_byName(current_viewname) is None:
-                                # The tag could be a combined view. Ensure there's no other tags
-                                # with the same name before deleting playlist.
-                                utils.playlistXSP(
-                                    mediatype, current_viewname, folderid, current_viewtype, True)
-                                # Delete video node
-                                if mediatype != "musicvideos":
-                                    self.vnodes.viewNode(
-                                        indexnumber=None,
-                                        tagname=current_viewname,
-                                        mediatype=mediatype,
-                                        viewtype=current_viewtype,
-                                        viewid=folderid,
-                                        delete=True)
-                            # Added new playlist
-                            if (foldername not in playlists and
-                                    mediatype in ('movies', 'tvshows', 'musicvideos')):
-                                utils.playlistXSP(mediatype, foldername, folderid, viewtype)
-                                playlists.append(foldername)
-                            # Add new video node
-                            if foldername not in nodes and mediatype != "musicvideos":
-                                self.vnodes.viewNode(sorted_views.index(foldername), foldername,
-                                    mediatype, viewtype, folderid)
-                                if viewtype == "mixed": # Change the value
-                                    sorted_views[sorted_views.index(foldername)] = "%ss" % foldername
-                                nodes.append(foldername)
-                                totalnodes += 1
-
-                        # Update items with new tag
-                        items = emby_db.getItem_byView(folderid)
-                        for item in items:
-                            # Remove the "s" from viewtype for tags
-                            kodi_db.updateTag(
-                                current_tagid, tagid, item[0], current_viewtype[:-1])
-                    else:
-                        # Validate the playlist exists or recreate it
-                        if mediatype != "music":
-                            if (foldername not in playlists and
-                                    mediatype in ('movies', 'tvshows', 'musicvideos')):
-                                utils.playlistXSP(mediatype, foldername, folderid, viewtype)
-                                playlists.append(foldername)
-                            # Create the video node if not already exists
-                            if foldername not in nodes and mediatype != "musicvideos":
-                                self.vnodes.viewNode(sorted_views.index(foldername), foldername,
-                                    mediatype, viewtype, folderid)
-                                if viewtype == "mixed": # Change the value
-                                    sorted_views[sorted_views.index(foldername)] = "%ss" % foldername
-                                nodes.append(foldername)
-                                totalnodes += 1
-        else:
-            # Add video nodes listings
-            self.vnodes.singleNode(totalnodes, "Favorite movies", "movies", "favourites")
-            totalnodes += 1
-            self.vnodes.singleNode(totalnodes, "Favorite tvshows", "tvshows", "favourites")
-            totalnodes += 1
-            self.vnodes.singleNode(totalnodes, "Favorite episodes", "episodes", "favourites")
-            totalnodes += 1
-            self.vnodes.singleNode(totalnodes, "channels", "movies", "channels")
-            totalnodes += 1
-            # Save total
-            window('Emby.nodes.total', str(totalnodes))
-
-            # Remove any old referenced views
-            log.info("Removing views: %s" % current_views)
-            for view in current_views:
-                emby_db.removeView(view)
-                # Remove any items that belongs to the old view
-                items = emby_db.get_item_by_view(view)
-                items = [i[0] for i in items] # Convert list of tuple to list
-                self.triage_items("remove", items)
-
+        
+        with DatabaseConn('emby') as conn_emby, DatabaseConn() as conn_video:
+            with closing(conn_emby.cursor()) as cursor_emby, closing(conn_video.cursor()) as cursor_video:
+                # Compare views, assign correct tags to items
+                views.Views(cursor_emby, cursor_video).maintain()
 
     def movies(self, embycursor, kodicursor, pdialog):
 
@@ -734,84 +503,83 @@ class LibrarySync(threading.Thread):
 
     def incrementalSync(self):
 
-        embyconn = utils.kodiSQL('emby')
-        embycursor = embyconn.cursor()
-        kodiconn = utils.kodiSQL('video')
-        kodicursor = kodiconn.cursor()
-        emby_db = embydb.Embydb_Functions(embycursor)
-        pDialog = None
         update_embydb = False
+        pDialog = None
 
+        # do a view update if needed
         if self.refresh_views:
-            # Received userconfig update
+            self.refreshViews()
             self.refresh_views = False
-            self.maintainViews(embycursor, kodicursor)
             self.forceLibraryUpdate = True
-            update_embydb = True
 
-        incSyncIndicator = int(settings('incSyncIndicator') or 10)
+        # do a lib update if any items in list
         totalUpdates = len(self.addedItems) + len(self.updateItems) + len(self.userdataItems) + len(self.removeItems)
-        
-        if incSyncIndicator != -1 and totalUpdates > incSyncIndicator:
-            # Only present dialog if we are going to process items
-            pDialog = self.progressDialog('Incremental sync')
-            log.info("incSyncIndicator=" + str(incSyncIndicator) + " totalUpdates=" + str(totalUpdates))
+        if totalUpdates > 0:
+            with DatabaseConn('emby') as conn_emby, DatabaseConn('video') as conn_video:
+                with closing(conn_emby.cursor()) as cursor_emby, closing(conn_video.cursor()) as cursor_video:
 
-        process = {
+                    emby_db = embydb.Embydb_Functions(cursor_emby)
 
-            'added': self.addedItems,
-            'update': self.updateItems,
-            'userdata': self.userdataItems,
-            'remove': self.removeItems
-        }
-        for process_type in ['added', 'update', 'userdata', 'remove']:
+                    incSyncIndicator = int(settings('incSyncIndicator') or 10)
+                    if incSyncIndicator != -1 and totalUpdates > incSyncIndicator:
+                        # Only present dialog if we are going to process items
+                        pDialog = self.progressDialog('Incremental sync')
+                        log.info("incSyncIndicator=" + str(incSyncIndicator) + " totalUpdates=" + str(totalUpdates))
 
-            if process[process_type] and window('emby_kodiScan') != "true":
+                    process = {
 
-                listItems = list(process[process_type])
-                del process[process_type][:] # Reset class list
+                        'added': self.addedItems,
+                        'update': self.updateItems,
+                        'userdata': self.userdataItems,
+                        'remove': self.removeItems
+                    }
+                    for process_type in ['added', 'update', 'userdata', 'remove']:
 
-                items_process = itemtypes.Items(embycursor, kodicursor)
-                update = False
+                        if process[process_type] and window('emby_kodiScan') != "true":
 
-                # Prepare items according to process process_type
-                if process_type == "added":
-                    items = self.emby.sortby_mediatype(listItems)
+                            listItems = list(process[process_type])
+                            del process[process_type][:] # Reset class list
 
-                elif process_type in ("userdata", "remove"):
-                    items = emby_db.sortby_mediaType(listItems, unsorted=False)
+                            items_process = itemtypes.Items(cursor_emby, cursor_video)
+                            update = False
 
-                else:
-                    items = emby_db.sortby_mediaType(listItems)
-                    if items.get('Unsorted'):
-                        sorted_items = self.emby.sortby_mediatype(items['Unsorted'])
-                        doupdate = items_process.itemsbyId(sorted_items, "added", pDialog)
-                        if doupdate:
-                            embyupdate, kodiupdate_video = doupdate
-                            if embyupdate:
-                                update_embydb = True
-                            if kodiupdate_video:
-                                self.forceLibraryUpdate = True
-                        del items['Unsorted']
+                            # Prepare items according to process process_type
+                            if process_type == "added":
+                                items = self.emby.sortby_mediatype(listItems)
 
-                doupdate = items_process.itemsbyId(items, process_type, pDialog)
-                if doupdate:
-                    embyupdate, kodiupdate_video = doupdate
-                    if embyupdate:
-                        update_embydb = True
-                    if kodiupdate_video:
-                        self.forceLibraryUpdate = True
+                            elif process_type in ("userdata", "remove"):
+                                items = emby_db.sortby_mediaType(listItems, unsorted=False)
 
+                            else:
+                                items = emby_db.sortby_mediaType(listItems)
+                                if items.get('Unsorted'):
+                                    sorted_items = self.emby.sortby_mediatype(items['Unsorted'])
+                                    doupdate = items_process.itemsbyId(sorted_items, "added", pDialog)
+                                    if doupdate:
+                                        embyupdate, kodiupdate_video = doupdate
+                                        if embyupdate:
+                                            update_embydb = True
+                                        if kodiupdate_video:
+                                            self.forceLibraryUpdate = True
+                                    del items['Unsorted']
+
+                            doupdate = items_process.itemsbyId(items, process_type, pDialog)
+                            if doupdate:
+                                embyupdate, kodiupdate_video = doupdate
+                                if embyupdate:
+                                    update_embydb = True
+                                if kodiupdate_video:
+                                    self.forceLibraryUpdate = True
+
+        # if stuff happened then do some stuff
         if update_embydb:
             update_embydb = False
             log.info("Updating emby database.")
-            embyconn.commit()
             self.saveLastSync()
 
         if self.forceLibraryUpdate:
             # Force update the Kodi library
             self.forceLibraryUpdate = False
-            self.dbCommit(kodiconn)
 
             log.info("Updating video library.")
             window('emby_kodiScan', value="true")
@@ -819,9 +587,6 @@ class LibrarySync(threading.Thread):
 
         if pDialog:
             pDialog.close()
-
-        kodicursor.close()
-        embycursor.close()
 
 
     def compareDBVersion(self, current, minimum):
@@ -843,23 +608,20 @@ class LibrarySync(threading.Thread):
             # Database out of date.
             return False
 
-    @classmethod
-    def _verify_emby_database(cls):
+    def _verify_emby_database(self):
         # Create the tables for the emby database
-        conn = utils.kodiSQL('emby')
-        cursor = conn.cursor()
-        # emby, view, version
-        cursor.execute(
-            """CREATE TABLE IF NOT EXISTS emby(
-            emby_id TEXT UNIQUE, media_folder TEXT, emby_type TEXT, media_type TEXT,
-            kodi_id INTEGER, kodi_fileid INTEGER, kodi_pathid INTEGER, parent_id INTEGER,
-            checksum INTEGER)""")
-        cursor.execute(
-            """CREATE TABLE IF NOT EXISTS view(
-            view_id TEXT UNIQUE, view_name TEXT, media_type TEXT, kodi_tagid INTEGER)""")
-        cursor.execute("CREATE TABLE IF NOT EXISTS version(idVersion TEXT)")
-        
-        conn.commit()
+        with DatabaseConn('emby') as conn:
+            with closing(conn.cursor()) as cursor:
+                # emby, view, version
+                cursor.execute(
+                    """CREATE TABLE IF NOT EXISTS emby(
+                    emby_id TEXT UNIQUE, media_folder TEXT, emby_type TEXT, media_type TEXT,
+                    kodi_id INTEGER, kodi_fileid INTEGER, kodi_pathid INTEGER, parent_id INTEGER,
+                    checksum INTEGER)""")
+                cursor.execute(
+                    """CREATE TABLE IF NOT EXISTS view(
+                    view_id TEXT UNIQUE, view_name TEXT, media_type TEXT, kodi_tagid INTEGER)""")
+                cursor.execute("CREATE TABLE IF NOT EXISTS version(idVersion TEXT)")
 
     def run(self):
 
@@ -906,18 +668,18 @@ class LibrarySync(threading.Thread):
 
             if (window('emby_dbCheck') != "true" and settings('SyncInstallRunDone') == "true"):
                 # Verify the validity of the database
+                log.info("Doing DB Version Check")
+                with DatabaseConn('emby') as conn:
+                    with closing(conn.cursor()) as cursor:                
 
-                embyconn = utils.kodiSQL('emby')
-                embycursor = embyconn.cursor()
-                emby_db = embydb.Embydb_Functions(embycursor)
-                currentVersion = emby_db.get_version()
-                ###$ Begin migration $###
-                if not currentVersion:
-                    currentVersion = emby_db.get_version(settings('dbCreatedWithVersion') or self.clientInfo.get_version())
-                    embyconn.commit()
-                    log.info("Migration of database version completed")
-                ###$ End migration $###
-                embycursor.close()
+                        emby_db = embydb.Embydb_Functions(cursor)
+                        currentVersion = emby_db.get_version()
+                        ###$ Begin migration $###
+                        if not currentVersion:
+                            currentVersion = emby_db.get_version(settings('dbCreatedWithVersion') or self.clientInfo.get_version())
+                            log.info("Migration of database version completed")
+                        ###$ End migration $###
+
                 window('emby_version', value=currentVersion)
 
                 minVersion = window('emby_minDBVersion')
@@ -932,7 +694,7 @@ class LibrarySync(threading.Thread):
                         log.warn("Database version is out of date! USER IGNORED!")
                         dialog.ok(lang(29999), lang(33023))
                     else:
-                        utils.reset()
+                        db_reset()
 
                     break
 
@@ -941,7 +703,7 @@ class LibrarySync(threading.Thread):
 
             if not startupComplete:
                 # Verify the video database can be found
-                videoDb = utils.getKodiVideoDBPath()
+                videoDb = DatabaseConn()._SQL('video')
                 if not xbmcvfs.exists(videoDb):
                     # Database does not exists
                     log.error(

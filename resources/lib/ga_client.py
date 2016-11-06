@@ -4,10 +4,11 @@ import traceback
 import requests
 import logging
 import clientinfo
-import md5
+import hashlib
 import xbmc
 import platform
 import xbmcgui
+import time
 from utils import window, settings, language as lang
 
 log = logging.getLogger("EMBY."+__name__)
@@ -15,6 +16,26 @@ log = logging.getLogger("EMBY."+__name__)
 # for info on the metrics that can be sent to Google Analytics
 # https://developers.google.com/analytics/devguides/collection/protocol/v1/parameters#events
 
+logEventHistory = {}
+
+# wrap a function to catch, log and then re throw an exception
+def log_error(errors=(Exception, )):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except errors as error:
+                ga = GoogleAnalytics()
+                errStrings = ga.formatException()
+                ga.sendEventData("Exception", errStrings[0], errStrings[1], True)
+                log.exception(error)
+                log.error("log_error: %s \n args: %s \n kwargs: %s",
+                          func.__name__, args, kwargs)
+                raise
+        return wrapper
+    return decorator
+
+# main GA class
 class GoogleAnalytics():
 
     testing = False
@@ -38,8 +59,8 @@ class GoogleAnalytics():
         self.user_name = settings('username') or settings('connectUsername') or 'None'
         
         # use md5 for client and user for analytics
-        self.device_id = md5.new(self.device_id).hexdigest()
-        self.user_name = md5.new(self.user_name).hexdigest()
+        self.device_id = hashlib.md5(self.device_id).hexdigest()
+        self.user_name = hashlib.md5(self.user_name).hexdigest()
         
         # resolution
         self.screen_mode = xbmc.getInfoLabel("System.ScreenMode")
@@ -128,7 +149,18 @@ class GoogleAnalytics():
     
         self.sendData(data)
     
-    def sendEventData(self, eventCategory, eventAction, eventLabel=None):
+    def sendEventData(self, eventCategory, eventAction, eventLabel=None, throttle=False):
+        
+        # if throttling is enabled then only log the same event every 5 min
+        if(throttle):
+            throttleKey = eventCategory + "-" + eventAction + "-" + str(eventLabel)
+            lastLogged = logEventHistory.get(throttleKey)
+            if(lastLogged != None):
+                timeSinceLastLog = time.time() - lastLogged
+                if(timeSinceLastLog < 300):
+                    log.info("SKIPPING_LOG_EVENT : " + str(timeSinceLastLog) + " " + throttleKey)
+                    return
+            logEventHistory[throttleKey] = time.time()
         
         data = self.getBaseData()
         data['t'] = 'event' # action type

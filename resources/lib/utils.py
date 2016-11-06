@@ -2,7 +2,6 @@
 
 #################################################################################################
 
-
 import inspect
 import json
 import logging
@@ -14,6 +13,7 @@ import time
 import unicodedata
 import xml.etree.ElementTree as etree
 from datetime import datetime
+
 
 import xbmc
 import xbmcaddon
@@ -47,11 +47,11 @@ def window(property_, value=None, clear=False, window_id=10000):
 def settings(setting, value=None):
     # Get or add addon setting
     addon = xbmcaddon.Addon(id='plugin.video.emby')
-    
+
     if value is not None:
         addon.setSetting(setting, value)
     else: # returns unicode object
-        return addon.getSetting(setting) 
+        return addon.getSetting(setting)
 
 def language(string_id):
     # Central string retrieval - unicode
@@ -120,114 +120,12 @@ def should_stop():
     else: # Keep going
         return False
 
-def kodiSQL(media_type="video"):
-
-    if media_type == "emby":
-        dbPath = xbmc.translatePath("special://database/emby.db").decode('utf-8')
-    elif media_type == "texture":
-        dbPath = xbmc.translatePath("special://database/Textures13.db").decode('utf-8')
-    elif media_type == "music":
-        dbPath = getKodiMusicDBPath()
-    else:
-        dbPath = getKodiVideoDBPath()
-
-    if settings('dblock') == "true":
-        connection = sqlite3.connect(dbPath, isolation_level=None, timeout=20)
-    else:
-        connection = sqlite3.connect(dbPath, timeout=20)
-    return connection
-
-def getKodiVideoDBPath():
-
-    dbVersion = {
-
-        "13": 78,   # Gotham
-        "14": 90,   # Helix
-        "15": 93,   # Isengard
-        "16": 99,   # Jarvis
-        "17": 107   # Krypton
-    }
-
-    dbPath = xbmc.translatePath(
-                "special://database/MyVideos%s.db"
-                % dbVersion.get(xbmc.getInfoLabel('System.BuildVersion')[:2], "")).decode('utf-8')
-    return dbPath
-
-def getKodiMusicDBPath():
-
-    dbVersion = {
-
-        "13": 46,   # Gotham
-        "14": 48,   # Helix
-        "15": 52,   # Isengard
-        "16": 56,   # Jarvis
-        "17": 60    # Krypton
-    }
-
-    dbPath = xbmc.translatePath(
-                "special://database/MyMusic%s.db"
-                % dbVersion.get(xbmc.getInfoLabel('System.BuildVersion')[:2], "")).decode('utf-8')
-    return dbPath
-
-def querySQL(query, args=None, cursor=None, conntype=None):
-
-    result = None
-    manualconn = False
-    failed = False
-
-    if cursor is None:
-        if conntype is None:
-            log.info("New connection type is missing.")
-            return result
-        else:
-            manualconn = True
-            connection = kodiSQL(conntype)
-            cursor = connection.cursor()
-
-    attempts = 0
-    while attempts < 3:
-        try:
-            log.debug("Query: %s Args: %s" % (query, args))
-            if args is None:
-                result = cursor.execute(query)
-            else:
-                result = cursor.execute(query, args)
-            break # Query successful, break out of while loop
-        except sqlite3.OperationalError as e:
-            if "database is locked" in e:
-                log.warn("%s...Attempt: %s" % (e, attempts))
-                attempts += 1
-                xbmc.sleep(1000)
-            else:
-                log.error(e)
-                if manualconn:
-                    cursor.close()
-                raise
-        except sqlite3.Error as e:
-            log.error(e)
-            if manualconn:
-                cursor.close()
-            raise
-    else:
-        failed = True
-        log.info("FAILED // Query: %s Args: %s" % (query, args))
-
-    if manualconn:
-        if failed:
-            cursor.close()
-        else:
-            connection.commit()
-            cursor.close()
-
-    log.debug(result)
-    return result
-
 #################################################################################################
 # Utility methods
 
 def getScreensaver():
     # Get the current screensaver value
-    result = JSONRPC('Settings.getSettingValues').execute({'setting': "screensaver.mode"})
+    result = JSONRPC('Settings.getSettingValue').execute({'setting': "screensaver.mode"})
     try:
         return result['result']['value']
     except KeyError:
@@ -251,26 +149,6 @@ def convertDate(date):
         date = datetime(*(time.strptime(date, "%Y-%m-%dT%H:%M:%SZ")[0:6]))
 
     return date
-
-def normalize_nodes(text):
-    # For video nodes
-    text = text.replace(":", "")
-    text = text.replace("/", "-")
-    text = text.replace("\\", "-")
-    text = text.replace("<", "")
-    text = text.replace(">", "")
-    text = text.replace("*", "")
-    text = text.replace("?", "")
-    text = text.replace('|', "")
-    text = text.replace('(', "")
-    text = text.replace(')', "")
-    text = text.strip()
-    # Remove dots from the last character as windows can not have directories
-    # with dots at the end
-    text = text.rstrip('.')
-    text = unicodedata.normalize('NFKD', unicode(text, 'utf-8')).encode('ascii', 'ignore')
-
-    return text
 
 def normalize_string(text):
     # For theme media, do not modify unless
@@ -307,21 +185,6 @@ def indent(elem, level=0):
         if level and (not elem.tail or not elem.tail.strip()):
           elem.tail = i
 
-def catch_except(errors=(Exception, ), default_value=False):
-    # Will wrap method with try/except and print parameters for easier debugging
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except errors as error:
-                log.exception(error)
-                log.error("function: %s \n args: %s \n kwargs: %s",
-                          func.__name__, args, kwargs)
-                return default_value
-
-        return wrapper
-    return decorator
-
 def profiling(sortby="cumulative"):
     # Will print results to Kodi log
     def decorator(func):
@@ -347,99 +210,6 @@ def profiling(sortby="cumulative"):
 
 #################################################################################################
 # Addon utilities
-
-def reset():
-
-    dialog = xbmcgui.Dialog()
-
-    if not dialog.yesno(language(29999), language(33074)):
-        return
-
-    # first stop any db sync
-    window('emby_online', value="reset")
-    window('emby_shouldStop', value="true")
-    count = 10
-    while window('emby_dbScan') == "true":
-        log.info("Sync is running, will retry: %s..." % count)
-        count -= 1
-        if count == 0:
-            dialog.ok(language(29999), language(33085))
-            return
-        xbmc.sleep(1000)
-
-    # Clean up the playlists
-    deletePlaylists()
-
-    # Clean up the video nodes
-    deleteNodes()
-
-    # Wipe the kodi databases
-    log.warn("Resetting the Kodi video database.")
-    connection = kodiSQL('video')
-    cursor = connection.cursor()
-    cursor.execute('SELECT tbl_name FROM sqlite_master WHERE type="table"')
-    rows = cursor.fetchall()
-    for row in rows:
-        tablename = row[0]
-        if tablename != "version":
-            cursor.execute("DELETE FROM " + tablename)
-    connection.commit()
-    cursor.close()
-
-    if settings('enableMusic') == "true":
-        log.warn("Resetting the Kodi music database.")
-        connection = kodiSQL('music')
-        cursor = connection.cursor()
-        cursor.execute('SELECT tbl_name FROM sqlite_master WHERE type="table"')
-        rows = cursor.fetchall()
-        for row in rows:
-            tablename = row[0]
-            if tablename != "version":
-                cursor.execute("DELETE FROM " + tablename)
-        connection.commit()
-        cursor.close()
-
-    # Wipe the emby database
-    log.warn("Resetting the Emby database.")
-    connection = kodiSQL('emby')
-    cursor = connection.cursor()
-    cursor.execute('SELECT tbl_name FROM sqlite_master WHERE type="table"')
-    rows = cursor.fetchall()
-    for row in rows:
-        tablename = row[0]
-        if tablename != "version":
-            cursor.execute("DELETE FROM " + tablename)
-    cursor.execute('DROP table IF EXISTS emby')
-    cursor.execute('DROP table IF EXISTS view')
-    cursor.execute("DROP table IF EXISTS version")
-    connection.commit()
-    cursor.close()
-
-    # Offer to wipe cached thumbnails
-    if dialog.yesno(language(29999), language(33086)):
-        log.warn("Resetting all cached artwork")
-        # Remove all existing textures first
-        import artwork
-        artwork.Artwork().delete_cache()
-
-    # reset the install run flag
-    settings('SyncInstallRunDone', value="false")
-
-    # Remove emby info
-    resp = dialog.yesno(language(29999), language(33087))
-    if resp:
-        import connectmanager
-        # Delete the settings
-        addon = xbmcaddon.Addon()
-        addondir = xbmc.translatePath(
-                   "special://profile/addon_data/plugin.video.emby/").decode('utf-8')
-        dataPath = "%ssettings.xml" % addondir
-        xbmcvfs.delete(dataPath)
-        connectmanager.ConnectManager().clear_data()
-
-    dialog.ok(heading=language(29999), line1=language(33088))
-    xbmc.executebuiltin('RestartApp')
-    return xbmcplugin.setResolvedUrl(int(sys.argv[1]), False, xbmcgui.ListItem())
 
 def sourcesXML():
     # To make Master lock compatible
@@ -576,81 +346,3 @@ def passwordsXML():
             icon="special://home/addons/plugin.video.emby/icon.png",
             time=1000,
             sound=False)
-
-def playlistXSP(mediatype, tagname, viewid, viewtype="", delete=False):
-    # Tagname is in unicode - actions: add or delete
-    tagname = tagname.encode('utf-8')
-
-    path = xbmc.translatePath("special://profile/playlists/video/").decode('utf-8')
-    if viewtype == "mixed":
-        plname = "%s - %s" % (tagname, mediatype)
-        xsppath = "%sEmby %s - %s.xsp" % (path, viewid, mediatype)
-    else:
-        plname = tagname
-        xsppath = "%sEmby %s.xsp" % (path, viewid)
-
-    # Create the playlist directory
-    if not xbmcvfs.exists(path):
-        log.info("Creating directory: %s" % path)
-        xbmcvfs.mkdirs(path)
-
-    # Only add the playlist if it doesn't already exists
-    if xbmcvfs.exists(xsppath):
-
-        if delete:
-            xbmcvfs.delete(xsppath)
-            log.info("Successfully removed playlist: %s." % tagname)
-
-        return
-
-    # Using write process since there's no guarantee the xml declaration works with etree
-    itemtypes = {
-        'homevideos': "movies"
-    }
-    log.info("Writing playlist file to: %s" % xsppath)
-    try:
-        f = xbmcvfs.File(xsppath, 'w')
-    except:
-        log.info("Failed to create playlist: %s" % xsppath)
-        return
-    else:
-        f.write(
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>\n'
-            '<smartplaylist type="%s">\n\t'
-                '<name>Emby %s</name>\n\t'
-                '<match>all</match>\n\t'
-                '<rule field="tag" operator="is">\n\t\t'
-                    '<value>%s</value>\n\t'
-                '</rule>'
-            '</smartplaylist>'
-            % (itemtypes.get(mediatype, mediatype), plname, tagname))
-        f.close()
-    log.info("Successfully added playlist: %s" % tagname)
-
-def deletePlaylists():
-
-    # Clean up the playlists
-    path = xbmc.translatePath("special://profile/playlists/video/").decode('utf-8')
-    dirs, files = xbmcvfs.listdir(path)
-    for file in files:
-        if file.decode('utf-8').startswith('Emby'):
-            xbmcvfs.delete("%s%s" % (path, file))
-
-def deleteNodes():
-
-    # Clean up video nodes
-    import shutil
-    path = xbmc.translatePath("special://profile/library/video/").decode('utf-8')
-    dirs, files = xbmcvfs.listdir(path)
-    for dir in dirs:
-        if dir.decode('utf-8').startswith('Emby'):
-            try:
-                shutil.rmtree("%s%s" % (path, dir.decode('utf-8')))
-            except:
-                log.warn("Failed to delete directory: %s" % dir.decode('utf-8'))
-    for file in files:
-        if file.decode('utf-8').startswith('emby'):
-            try:
-                xbmcvfs.delete("%s%s" % (path, file.decode('utf-8')))
-            except:
-                log.warn("Failed to delete file: %s" % file.decode('utf-8'))
