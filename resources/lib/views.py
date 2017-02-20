@@ -194,7 +194,7 @@ class Views(object):
 
     def get_tag(self, tag):
         # This will create and return the tag_id
-        if KODI in (15, 16, 17):
+        if KODI in (15, 16, 17, 18):
             # Kodi Isengard, Jarvis, Krypton
             query = ' '.join((
 
@@ -244,7 +244,7 @@ class Views(object):
 
         log.debug("Updating: %s with %s for %s: %s", tag, new_tag, media_type, kodi_id)
 
-        if KODI in (15, 16, 17):
+        if KODI in (15, 16, 17, 18):
             # Kodi Isengard, Jarvis, Krypton
             try:
                 query = ' '.join((
